@@ -1,0 +1,37 @@
+{
+  "name": "TouchLog",
+  "type": "object",
+  "properties": {
+    "lead_id": {
+      "type": "string",
+      "description": "Reference to the Lead"
+    },
+    "touch_index": {
+      "type": "number",
+      "description": "Touch number in the cadence"
+    },
+    "channel": {
+      "type": "string",
+      "description": "Channel used for this touch"
+    },
+    "completed_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When this touch was completed"
+    },
+    "response_received": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the lead responded"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Notes about this touch"
+    }
+  },
+  "required": [
+    "lead_id",
+    "touch_index",
+    "channel"
+  ]
+}

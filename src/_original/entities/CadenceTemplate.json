@@ -1,0 +1,76 @@
+{
+  "name": "CadenceTemplate",
+  "type": "object",
+  "properties": {
+    "key": {
+      "type": "string",
+      "description": "Unique key like adp_prospect, caneycloud_client_new, etc."
+    },
+    "label": {
+      "type": "string",
+      "description": "Display label"
+    },
+    "company": {
+      "type": "string",
+      "enum": [
+        "ADP",
+        "CaneyCloud/VAV"
+      ]
+    },
+    "relationship_type": {
+      "type": "string",
+      "enum": [
+        "Prospect",
+        "Partner",
+        "Client"
+      ]
+    },
+    "client_status": {
+      "type": "string",
+      "enum": [
+        "New",
+        "Established",
+        ""
+      ]
+    },
+    "is_recurring": {
+      "type": "boolean",
+      "default": false
+    },
+    "total_touches": {
+      "type": "number"
+    },
+    "total_days": {
+      "type": "number"
+    },
+    "recurring_interval_days": {
+      "type": "number",
+      "description": "For recurring cadences, days between touches"
+    },
+    "channels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Ordered list of channels for each touch"
+    },
+    "touch_days": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "description": "Day offset for each touch from cadence start"
+    },
+    "no_repeat_channel": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, never repeat same channel consecutively"
+    }
+  },
+  "required": [
+    "key",
+    "company",
+    "relationship_type",
+    "total_touches"
+  ]
+}

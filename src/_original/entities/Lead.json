@@ -1,0 +1,195 @@
+{
+  "name": "Lead",
+  "type": "object",
+  "properties": {
+    "company_name": {
+      "type": "string",
+      "description": "Name of the company / account"
+    },
+    "decision_maker": {
+      "type": "string",
+      "description": "Name of the decision maker at the company"
+    },
+    "gatekeeper": {
+      "type": "string",
+      "description": "Name of the gatekeeper at the company"
+    },
+    "name": {
+      "type": "string",
+      "description": "Full name of the lead (decision maker contact name)"
+    },
+    "company": {
+      "type": "string",
+      "enum": [
+        "ADP",
+        "CaneyCloud/VAV"
+      ],
+      "description": "Company the lead belongs to"
+    },
+    "phones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Phone numbers with custom labels"
+    },
+    "emails": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Email addresses with custom labels"
+    },
+    "linkedin_url": {
+      "type": "string",
+      "description": "LinkedIn profile URL"
+    },
+    "instagram": {
+      "type": "string",
+      "description": "Instagram handle"
+    },
+    "job_industry": {
+      "type": "string",
+      "description": "Job title or industry type"
+    },
+    "address": {
+      "type": "string",
+      "description": "Street address of the business"
+    },
+    "zipcode": {
+      "type": "string",
+      "description": "ZIP code of the business"
+    },
+    "maps_url": {
+      "type": "string",
+      "description": "Google Maps URL for the business location"
+    },
+    "is_address_verified": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the address has been geocoded and verified"
+    },
+    "count": {
+      "type": "number",
+      "description": "Number of employees (ADP) or rooms (CaneyCloud/VAV)"
+    },
+    "roll_call": {
+      "type": "number",
+      "description": "Contract value or service fee for this lead"
+    },
+    "relationship_type": {
+      "type": "string",
+      "enum": [
+        "Prospect",
+        "Partner",
+        "Client"
+      ],
+      "description": "Type of relationship"
+    },
+    "client_status": {
+      "type": "string",
+      "enum": [
+        "New",
+        "Established"
+      ],
+      "description": "Only for Clients"
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "New",
+        "Contacted",
+        "Engaged",
+        "Meeting",
+        "Won",
+        "Lost",
+        "Nurture"
+      ],
+      "default": "New"
+    },
+    "importance": {
+      "type": "number",
+      "enum": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "default": 0,
+      "description": "Importance level: 0=none, 1=important, 2=most important, 3=extremely important"
+    },
+    "cadence_key": {
+      "type": "string",
+      "description": "Key identifying which cadence template applies"
+    },
+    "current_touch_index": {
+      "type": "number",
+      "default": 0,
+      "description": "Index of the current touch in the cadence"
+    },
+    "cadence_start_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the cadence started"
+    },
+    "next_touch_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the next touch is due"
+    },
+    "next_touch_channel": {
+      "type": "string",
+      "description": "Channel for the next touch"
+    },
+    "last_touch_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the last touch was completed"
+    },
+    "cadence_completed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the cadence sequence is done"
+    },
+    "permanent_cadence": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, cadence restarts from the beginning when it ends"
+    },
+    "nurture_revisit_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "For nurture leads, when to revisit"
+    },
+    "color_status": {
+      "type": "string",
+      "enum": [
+        "green",
+        "yellow",
+        "red"
+      ],
+      "default": "green"
+    }
+  },
+  "required": [
+    "name",
+    "company",
+    "relationship_type"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "PartnershipType",
+  "type": "object",
+  "properties": {
+    "label": {
+      "type": "string",
+      "description": "Display name of the partnership type (e.g. Vendor, Referral)"
+    },
+    "key": {
+      "type": "string",
+      "description": "Slug key used for cadence lookup (e.g. vendor, referral)"
+    },
+    "company": {
+      "type": "string",
+      "enum": [
+        "ADP",
+        "CaneyCloud/VAV"
+      ],
+      "description": "Which company this partnership type belongs to"
+    }
+  },
+  "required": [
+    "label",
+    "key",
+    "company"
+  ]
+}
