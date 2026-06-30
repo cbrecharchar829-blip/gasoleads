@@ -1,4 +1,5 @@
 import moment from 'moment';
+import { shiftToBusinessDay, businessDaysOverdue } from '@/lib/businessDays';
 
 // Generate touch schedule from a cadence template for a lead
 export function generateTouchSchedule(template, startDate) {
@@ -53,17 +54,37 @@ export function getNextTouch(template, currentTouchIndex, lastTouchDate) {
   return { channel: nextChannel, date: startDate.toISOString(), index: currentTouchIndex };
 }
 
-// Calculate color status based on next touch date
+// Calculate color status based on next touch date.
+// Overdue is measured in WORKING days (weekends & days-off don't count), so a
+// Friday touch stays green over the weekend and only ages once Monday arrives.
 export function calculateColorStatus(nextTouchDate) {
   if (!nextTouchDate) return 'green';
 
-  const now = moment();
-  const due = moment(nextTouchDate);
-  const diffDays = due.diff(now, 'days', true);
+  const overdue = businessDaysOverdue(nextTouchDate);
+  if (overdue <= 0) return 'green';   // on track or due today
+  if (overdue <= 2) return 'yellow';  // 1-2 working days overdue
+  return 'red';                       // 3+ working days overdue
+}
 
-  if (diffDays >= 0) return 'green';       // on track or due today
-  if (diffDays >= -2) return 'yellow';      // 1-2 days overdue
-  return 'red';                             // 3+ days overdue
+// True when a lead is a forever-looping ("permanent") cadence — either a
+// recurring template (Partner/Client) or a fixed cadence with the per-lead
+// permanent toggle on. These never auto-complete.
+export function isPermanentLoop(lead, template) {
+  return !!(template?.is_recurring || lead?.permanent_cadence);
+}
+
+// Rule 2 detector: a permanent-loop lead the user should be nudged about because
+// no contact has been logged in 3 weeks. Used to surface a "shoulder tap" prompt
+// (keep going vs. move to Nurture) — we never auto-move permanent leads.
+// The clock resets on the latest of: a logged touch, a "keep going" dismissal,
+// or (for a never-touched lead) the cadence start.
+export function needsShoulderTap(lead, template) {
+  if (!lead) return false;
+  if (['Won', 'Lost', 'Nurture'].includes(lead.stage)) return false;
+  if (!isPermanentLoop(lead, template)) return false;
+  const lastActivity = lead.nudge_dismissed_date || lead.last_touch_date || lead.cadence_start_date;
+  if (!lastActivity) return false;
+  return moment(lastActivity).isBefore(moment().subtract(3, 'weeks'));
 }
 
 // Get cadence key from lead fields.
@@ -101,7 +122,7 @@ export function scheduleTouch(template, nextIndex, anchorDate) {
     if (nextIndex <= 0) {
       return { next_touch_channel: channelFor(0), next_touch_date: anchorIso, cadence_start_date: anchorIso, cadence_completed: false };
     }
-    const date = moment(anchorDate).add(template.recurring_interval_days || 0, 'days').toISOString();
+    const date = shiftToBusinessDay(moment(anchorDate).add(template.recurring_interval_days || 0, 'days').toISOString());
     return { next_touch_channel: channelFor(nextIndex), next_touch_date: date, cadence_start_date: anchorIso, cadence_completed: false };
   }
 
@@ -119,7 +140,7 @@ export function scheduleTouch(template, nextIndex, anchorDate) {
   const prevOffset = days[nextIndex - 1] || 0;
   const start = moment(anchorDate).subtract(prevOffset, 'days');
   const nextOffset = days[nextIndex] || 0;
-  const date = start.clone().add(nextOffset, 'days').toISOString();
+  const date = shiftToBusinessDay(start.clone().add(nextOffset, 'days').toISOString());
   return { next_touch_channel: channelFor(nextIndex), next_touch_date: date, cadence_start_date: start.toISOString(), cadence_completed: false };
 }
 
@@ -136,7 +157,9 @@ export const DEFAULT_CADENCE_TEMPLATES = [
     total_days: 18,
     recurring_interval_days: 0,
     channels: ['Call', 'Text', 'Email', 'In-person drop-in', 'Call', 'Email', 'Text', 'Call', 'In-person drop-in', 'Email', 'Call', 'Text', 'Email'],
-    touch_days: [0, 0, 1, 2, 3, 4, 5, 7, 9, 11, 13, 15, 18],
+    // Strictly increasing (no two touches share a day) so the template matches
+    // the app's "one touch per day max" rule. 13 touches across an 18-day span.
+    touch_days: [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 18],
     no_repeat_channel: true,
   },
   {

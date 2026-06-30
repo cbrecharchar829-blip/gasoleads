@@ -6,6 +6,7 @@
 import moment from 'moment';
 import { base44 } from '@/api/localClient';
 import { getCadenceKey, calculateColorStatus, scheduleTouch } from '@/lib/cadenceUtils';
+import { shiftToBusinessDay } from '@/lib/businessDays';
 
 // Turn the Add-Lead form into clean, save-ready data.
 // FIX (the #1 bug): blank "count" / "roll_call" used to be empty strings, which
@@ -79,8 +80,9 @@ export async function addLead(form, templates, options = {}) {
     next_touch_date: sched.cadence_completed ? null : sched.next_touch_date,
   };
 
-  // A completed Prospect cadence drops straight into Nurture (existing rule).
-  if (sched.cadence_completed && clean.relationship_type === 'Prospect') {
+  // Rule 1 (at creation): a lead added as already past its last touch has a
+  // finished non-permanent cadence with no response yet — drop it to Nurture.
+  if (sched.cadence_completed) {
     leadData.stage = 'Nurture';
     leadData.nurture_revisit_date = moment().add(6, 'weeks').toISOString();
   }
@@ -124,28 +126,37 @@ export async function markTouchDone(lead, templates) {
   const tomorrow = moment().add(1, 'day').startOf('day');
 
   if (template) {
+    updateData.cadence_template_missing = false; // template found — clear any stale flag
     if (template.is_recurring) {
       const channels = template.channels;
       const nextDate = moment().add(template.recurring_interval_days, 'days');
       updateData.next_touch_channel = channels[nextIndex % channels.length];
-      updateData.next_touch_date = (nextDate.isBefore(tomorrow) ? tomorrow : nextDate).toISOString();
+      updateData.next_touch_date = shiftToBusinessDay((nextDate.isBefore(tomorrow) ? tomorrow : nextDate).toISOString());
       updateData.color_status = 'green';
     } else if (nextIndex >= template.total_touches) {
       if (lead.permanent_cadence) {
-        // Restart the cadence from the beginning
-        const dayOffset = template.touch_days[1] || 1;
+        // Restart the cadence from the TRUE beginning (index 0), so the first
+        // touch fires on every loop. (Day-0 offsets clamp to tomorrow below.)
+        const dayOffset = template.touch_days[0] || 0;
         const nextDate = moment().add(dayOffset, 'days');
-        updateData.current_touch_index = 1;
+        updateData.current_touch_index = 0;
         updateData.cadence_start_date = now;
         updateData.cadence_completed = false;
-        updateData.next_touch_channel = template.channels[1 % template.channels.length];
-        updateData.next_touch_date = (nextDate.isBefore(tomorrow) ? tomorrow : nextDate).toISOString();
+        updateData.next_touch_channel = template.channels[0];
+        updateData.next_touch_date = shiftToBusinessDay((nextDate.isBefore(tomorrow) ? tomorrow : nextDate).toISOString());
         updateData.color_status = 'green';
       } else {
+        // Rule 1: a non-permanent cadence just finished its full sequence (the
+        // last touch is the breakup message). If the lead never logged a
+        // response across the whole sequence, drop it to Nurture automatically.
+        // If they ever responded, leave the stage alone — the rep is engaging.
         updateData.cadence_completed = true;
         updateData.next_touch_date = null;
         updateData.next_touch_channel = null;
-        if (lead.relationship_type === 'Prospect') {
+        const responded = await base44.entities.TouchLog.filter(
+          { lead_id: lead.id, response_received: true }, null, 1
+        );
+        if (responded.length === 0) {
           updateData.stage = 'Nurture';
           updateData.nurture_revisit_date = moment().add(6, 'weeks').toISOString();
         }
@@ -153,12 +164,35 @@ export async function markTouchDone(lead, templates) {
     } else {
       const dayOffset = template.touch_days[nextIndex] || 0;
       const nextDate = moment(lead.cadence_start_date).add(dayOffset, 'days');
-      updateData.next_touch_date = (nextDate.isBefore(tomorrow) ? tomorrow : nextDate).toISOString();
+      updateData.next_touch_date = shiftToBusinessDay((nextDate.isBefore(tomorrow) ? tomorrow : nextDate).toISOString());
       updateData.next_touch_channel = template.channels[nextIndex % template.channels.length];
       updateData.color_status = calculateColorStatus(updateData.next_touch_date);
     }
+  } else {
+    // No matching cadence template (e.g. its Partnership Type was deleted). The
+    // touch is still logged, but we can't compute a next one — so clear the
+    // schedule instead of leaving a stale past date stuck on the Today page,
+    // and flag the lead so the UI can warn that its template is missing.
+    updateData.next_touch_date = null;
+    updateData.next_touch_channel = null;
+    updateData.color_status = 'green';
+    updateData.cadence_template_missing = true;
   }
 
   await base44.entities.Lead.update(lead.id, updateData);
   return updateData;
+}
+
+// Rule 2 actions — the user's decision on a shoulder-tapped permanent-loop lead.
+// "Keep going" just resets the 3-week inactivity clock (no stage change).
+export async function dismissShoulderTap(lead) {
+  return base44.entities.Lead.update(lead.id, { nudge_dismissed_date: new Date().toISOString() });
+}
+
+// "Move to Nurture" — the user chooses to park a looping lead.
+export async function moveLeadToNurture(lead) {
+  return base44.entities.Lead.update(lead.id, {
+    stage: 'Nurture',
+    nurture_revisit_date: moment().add(6, 'weeks').toISOString(),
+  });
 }

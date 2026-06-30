@@ -4,11 +4,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import moment from 'moment';
 import {
   ArrowLeft, Phone, Mail, Linkedin, Instagram, Briefcase, Check, Trash2,
-  ExternalLink, RefreshCw, MapPin, Copy, Pencil, Plus, Link2, X
+  ExternalLink, RefreshCw, MapPin, Copy, Pencil, Plus, Link2, X, CalendarClock, Bell
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
@@ -17,8 +18,9 @@ import StatusBadge from '@/components/leads/StatusBadge';
 import StageBadge from '@/components/leads/StageBadge';
 import ChannelIcon from '@/components/leads/ChannelIcon';
 import CompetitorTag from '@/components/leads/CompetitorTag';
-import { STAGES, calculateColorStatus, getCadenceKey } from '@/lib/cadenceUtils';
-import { markTouchDone } from '@/lib/leadActions';
+import { STAGES, calculateColorStatus, getCadenceKey, needsShoulderTap } from '@/lib/cadenceUtils';
+import { markTouchDone, dismissShoulderTap, moveLeadToNurture } from '@/lib/leadActions';
+import { shiftToBusinessDay } from '@/lib/businessDays';
 
 const CHANNEL_OPTIONS = ['Call', 'Text', 'Email', 'WhatsApp', 'In-person drop-in'];
 
@@ -42,6 +44,8 @@ export default function LeadDetail() {
   const [editMtg, setEditMtg] = useState(null);        // { id, date, content }
   const [addingTouch, setAddingTouch] = useState(false);
   const [touchForm, setTouchForm] = useState({ channel: 'Call', when: '', number: '', answered: false });
+  const [rescheduling, setRescheduling] = useState(false);
+  const [rescheduleDate, setRescheduleDate] = useState(''); // 'YYYY-MM-DD'
 
   const loadData = useCallback(async () => {
     const [leadData, allNotes, allTouches, allTemplates, allMeetings] = await Promise.all([
@@ -107,7 +111,7 @@ export default function LeadDetail() {
 
     if (template) {
       updateData.next_touch_channel = template.channels[0];
-      updateData.next_touch_date = moment().add(template.recurring_interval_days, 'days').toISOString();
+      updateData.next_touch_date = shiftToBusinessDay(moment().add(template.recurring_interval_days, 'days').toISOString());
     }
 
     await base44.entities.Lead.update(leadId, updateData);
@@ -117,12 +121,50 @@ export default function LeadDetail() {
 
   const handleMarkDone = async () => {
     try {
-      await markTouchDone(lead, templates);
-      toast({ title: 'Touch completed' });
+      const result = await markTouchDone(lead, templates);
+      if (result?.cadence_template_missing) {
+        toast({ title: 'Touch logged — cadence template missing', description: 'No next touch was scheduled. Re-create this lead’s type in Settings.' });
+      } else {
+        toast({ title: 'Touch completed' });
+      }
       loadData();
     } catch (error) {
       toast({ title: 'Error marking touch', description: 'Unable to update lead status.' });
     }
+  };
+
+  // Manual override: pin the next touch to a specific day the prospect named.
+  // The chosen day is honored EXACTLY — even a weekend or day-off (no business-day
+  // roll). Only next_touch_date changes; cadence_start_date / current_touch_index
+  // are left intact, so once this touch is marked done the cadence resumes its
+  // normal automatic business-days rhythm.
+  const handleReschedule = async () => {
+    if (!rescheduleDate) return;
+    const base = lead.next_touch_date ? moment(lead.next_touch_date) : moment();
+    const [y, mo, d] = rescheduleDate.split('-').map(Number);
+    const when = moment(base).year(y).month(mo - 1).date(d); // keep time-of-day
+    const iso = when.toISOString();
+    await base44.entities.Lead.update(leadId, {
+      next_touch_date: iso,
+      color_status: calculateColorStatus(iso),
+    });
+    setRescheduling(false);
+    setRescheduleDate('');
+    toast({ title: 'Next touch rescheduled', description: when.format('dddd, MMM D') });
+    loadData();
+  };
+
+  // Rule 2: user's decision on a shoulder-tapped permanent-loop lead.
+  const handleKeepGoing = async () => {
+    await dismissShoulderTap(lead);
+    toast({ title: 'Keeping the cadence going', description: 'We’ll check back in 3 weeks.' });
+    loadData();
+  };
+
+  const handleMoveToNurture = async () => {
+    await moveLeadToNurture(lead);
+    toast({ title: 'Moved to Nurture' });
+    loadData();
   };
 
   const handleTogglePermanent = async () => {
@@ -303,6 +345,35 @@ export default function LeadDetail() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+        {/* Missing cadence template warning */}
+        {lead.cadence_key && !template && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
+            <span className="font-medium">Cadence template missing.</span> This lead’s type
+            (<span className="font-mono text-xs">{lead.cadence_key}</span>) no longer has a cadence template,
+            so touches can’t be auto-scheduled. Re-create the matching Partnership Type in Settings, or use
+            Reschedule to set the next touch manually.
+          </div>
+        )}
+
+        {/* Shoulder tap — permanent-loop lead idle 3+ weeks; user decides */}
+        {needsShoulderTap(lead, template) && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+            <div className="flex items-start gap-3">
+              <Bell className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-amber-900">No logged contact in 3+ weeks</p>
+                <p className="text-sm text-amber-800 mt-0.5">
+                  This is a permanent (looping) cadence — it won't auto-stop. Keep it going, or park the lead in Nurture?
+                </p>
+                <div className="flex flex-wrap items-center gap-2 mt-3">
+                  <Button size="sm" variant="outline" onClick={handleKeepGoing}>Keep going</Button>
+                  <Button size="sm" variant="outline" className="text-amber-700 border-amber-300 hover:bg-amber-100" onClick={handleMoveToNurture}>Move to Nurture</Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Next Touch Card */}
         {lead.next_touch_channel && !lead.cadence_completed && (
           <div className="bg-white rounded-xl border border-gray-100 p-5">
@@ -321,24 +392,60 @@ export default function LeadDetail() {
                   {lead.next_touch_date ? moment(lead.next_touch_date).calendar() : ''}
                 </p>
               </div>
-              <Button onClick={handleMarkDone} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700">
-                <Check className="w-4 h-4" /> Mark Done
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setRescheduleDate(lead.next_touch_date ? moment(lead.next_touch_date).format('YYYY-MM-DD') : '');
+                    setRescheduling(r => !r);
+                  }}
+                  className="gap-1.5"
+                >
+                  <CalendarClock className="w-4 h-4" /> Reschedule
+                </Button>
+                <Button onClick={handleMarkDone} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700">
+                  <Check className="w-4 h-4" /> Mark Done
+                </Button>
+              </div>
             </div>
+
+            {/* Manual reschedule — honors the chosen day exactly, even a weekend/day-off */}
+            {rescheduling && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <Label className="text-xs text-gray-500">Reschedule next touch to a specific day</Label>
+                <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                  <Input
+                    type="date"
+                    value={rescheduleDate}
+                    onChange={e => setRescheduleDate(e.target.value)}
+                    className="h-9 w-44"
+                  />
+                  <Button size="sm" onClick={handleReschedule} disabled={!rescheduleDate}>Save date</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setRescheduling(false); setRescheduleDate(''); }}>Cancel</Button>
+                </div>
+                <p className="text-xs text-gray-400 mt-1.5">
+                  Manual override — this exact day is kept even if it's a weekend or day off. The cadence returns to automatic scheduling after this touch.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Permanent cadence toggle */}
-        <div className="bg-white rounded-xl border border-gray-100 p-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <RefreshCw className="w-4 h-4 text-gray-400" />
-            <div>
-              <p className="text-sm font-medium text-gray-800">Permanent Cadence</p>
-              <p className="text-xs text-gray-400">When the cadence ends, automatically restart it</p>
+        {/* Permanent cadence toggle — only meaningful for fixed (non-recurring)
+            cadences. Recurring cadences (Partner/Client) already repeat forever,
+            so the toggle does nothing there and is hidden. */}
+        {template && !template.is_recurring && (
+          <div className="bg-white rounded-xl border border-gray-100 p-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 text-gray-400" />
+              <div>
+                <p className="text-sm font-medium text-gray-800">Permanent Cadence</p>
+                <p className="text-xs text-gray-400">When the cadence ends, automatically restart it from the first touch</p>
+              </div>
             </div>
+            <Switch checked={!!lead.permanent_cadence} onCheckedChange={handleTogglePermanent} />
           </div>
-          <Switch checked={!!lead.permanent_cadence} onCheckedChange={handleTogglePermanent} />
-        </div>
+        )}
 
         {lead.cadence_completed && lead.stage === 'Nurture' && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">

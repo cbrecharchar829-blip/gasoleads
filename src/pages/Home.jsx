@@ -2,14 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { base44 } from '@/api/localClient';
 import { Link } from 'react-router-dom';
 import moment from 'moment';
-import { Plus, Users, Settings, CalendarCheck, Fuel, UserPlus, X, MapPin, Sun, Zap } from 'lucide-react';
+import { Plus, Users, Settings, CalendarCheck, Fuel, UserPlus, X, MapPin, Sun, Zap, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import TouchCard from '@/components/leads/TouchCard';
 import AddLeadDialog from '@/components/leads/AddLeadDialog';
 import LeadFilters from '@/components/leads/LeadFilters';
-import { calculateColorStatus } from '@/lib/cadenceUtils';
-import { addLead, markTouchDone } from '@/lib/leadActions';
+import { calculateColorStatus, needsShoulderTap } from '@/lib/cadenceUtils';
+import { businessDaysOverdue } from '@/lib/businessDays';
+import { addLead, markTouchDone, dismissShoulderTap, moveLeadToNurture } from '@/lib/leadActions';
 import { matchesCategoryFilters, emptyFilters } from '@/lib/leadFilters';
 
 export default function Home() {
@@ -59,28 +60,32 @@ export default function Home() {
     return () => clearTimeout(timeout);
   }, []);
 
-  // Auto-move Prospects to Nurture after 4 weeks with no response
-  useEffect(() => {
-    if (leads.length === 0) return;
-    const fourWeeksAgo = moment().subtract(4, 'weeks');
-    const toNurture = leads.filter(l =>
-      l.relationship_type === 'Prospect' &&
-      !['Nurture', 'Won', 'Lost'].includes(l.stage) &&
-      l.cadence_start_date &&
-      moment(l.cadence_start_date).isBefore(fourWeeksAgo)
-    );
-    if (toNurture.length === 0) return;
-    Promise.all(toNurture.map(l =>
-      base44.entities.Lead.update(l.id, {
-        stage: 'Nurture',
-        nurture_revisit_date: moment().add(6, 'weeks').toISOString(),
-      })
-    )).then(() => {
-      toast({ title: `${toNurture.length} prospect${toNurture.length > 1 ? 's' : ''} moved to Nurture`, description: 'No response after 4 weeks.' });
+  // Rule 2: permanent-loop leads with no logged contact in 3 weeks. We never
+  // auto-move these — they're surfaced as a "shoulder tap" for the user to
+  // decide (keep going vs. move to Nurture).
+  const shoulderTapLeads = leads.filter(l =>
+    needsShoulderTap(l, templates.find(t => t.key === l.cadence_key))
+  );
+
+  const handleKeepGoing = async (lead) => {
+    try {
+      await dismissShoulderTap(lead);
+      toast({ title: 'Keeping the cadence going', description: `${lead.name} — we’ll check back in 3 weeks` });
       loadData();
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leads]);
+    } catch (error) {
+      toast({ title: 'Error updating lead' });
+    }
+  };
+
+  const handleMoveToNurture = async (lead) => {
+    try {
+      await moveLeadToNurture(lead);
+      toast({ title: 'Moved to Nurture', description: lead.name });
+      loadData();
+    } catch (error) {
+      toast({ title: 'Error updating lead' });
+    }
+  };
 
   // Filter for today's touches — today AND any overdue (past due) leads
   const todayLeads = leads.filter(l => {
@@ -88,7 +93,9 @@ export default function Home() {
     if (l.stage === 'Won' || l.stage === 'Lost') return false;
     const due = moment(l.next_touch_date).startOf('day');
     if (due.isAfter(today)) return false; // future — not yet
-    if (filters.overdueOnly && !due.isBefore(today)) return false; // only past days
+    // "Overdue" is measured in WORKING days, so a Friday touch isn't flagged
+    // over the weekend (weekends & days-off don't count as overdue).
+    if (filters.overdueOnly && businessDaysOverdue(l.next_touch_date) <= 0) return false;
     // Apply advanced (multi-select) filters
     if (!matchesCategoryFilters(l, filters)) return false;
     return true;
@@ -102,13 +109,17 @@ export default function Home() {
 
   const [stagePopover, setStagePopover] = useState(null); // { label, leads }
 
-  const overdueCount = todayLeads.filter(l => moment(l.next_touch_date).startOf('day').isBefore(today)).length;
+  const overdueCount = todayLeads.filter(l => businessDaysOverdue(l.next_touch_date) > 0).length;
   const dueCount = todayLeads.filter(l => moment(l.next_touch_date).startOf('day').isSame(today)).length;
 
   const handleMarkDone = async (lead) => {
     try {
-      await markTouchDone(lead, templates);
-      toast({ title: 'Touch completed', description: `${lead.name} — next touch scheduled` });
+      const result = await markTouchDone(lead, templates);
+      if (result?.cadence_template_missing) {
+        toast({ title: 'Touch logged — cadence template missing', description: `${lead.name} has no cadence template, so no next touch was scheduled. Re-create its type in Settings.` });
+      } else {
+        toast({ title: 'Touch completed', description: `${lead.name} — next touch scheduled` });
+      }
       loadData();
     } catch (error) {
       toast({ title: 'Error marking touch', description: 'Unable to update lead status.' });
@@ -281,6 +292,37 @@ export default function Home() {
             </div>
           );
         })()}
+
+        {/* Shoulder tap — permanent-loop leads idle 3+ weeks, needing a decision */}
+        {shoulderTapLeads.length > 0 && (
+          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-amber-200">
+              <Bell className="w-4 h-4 text-amber-600" />
+              <span className="text-sm font-semibold text-amber-900">Needs a decision</span>
+              <span className="text-xs text-amber-700">· no logged contact in 3+ weeks</span>
+            </div>
+            <div className="divide-y divide-amber-100">
+              {shoulderTapLeads.map(l => {
+                const last = l.last_touch_date || l.cadence_start_date;
+                return (
+                  <div key={l.id} className="flex items-center gap-3 px-4 py-3">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${l.company === 'ADP' ? 'bg-red-400' : 'bg-amber-500'}`} />
+                    <Link to={`/leads/${l.id}`} className="flex-1 min-w-0 hover:underline">
+                      <span className="text-sm font-medium text-gray-900 truncate block">{l.company_name || l.name}</span>
+                      <span className="text-xs text-gray-500">
+                        {l.company} · {l.relationship_type}{last ? ` · last contact ${moment(last).fromNow()}` : ''}
+                      </span>
+                    </Link>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button size="sm" variant="outline" onClick={() => handleKeepGoing(l)}>Keep going</Button>
+                      <Button size="sm" variant="outline" className="text-amber-700 border-amber-300 hover:bg-amber-100" onClick={() => handleMoveToNurture(l)}>Move to Nurture</Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Overdue / All toggle + Filters */}
         <div className="mb-4 flex items-center gap-2 flex-wrap">

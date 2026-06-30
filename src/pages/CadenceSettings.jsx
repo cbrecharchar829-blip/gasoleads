@@ -8,6 +8,9 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/use-toast';
 import ChannelIcon from '@/components/leads/ChannelIcon';
+import { getDaysOff, addDayOff, removeDayOff } from '@/lib/businessDays';
+import moment from 'moment';
+import { CalendarOff } from 'lucide-react';
 
 const COMPANIES = ['ADP', 'CaneyCloud/VAV'];
 
@@ -18,6 +21,8 @@ export default function CadenceSettings() {
   const [saving, setSaving] = useState(null);
   const [newType, setNewType] = useState({ label: '', company: 'ADP', is_recurring: false, interval_days: 7, channels: ['Call'] });
   const [addingType, setAddingType] = useState(false);
+  const [daysOff, setDaysOffState] = useState([]);
+  const [newDayOff, setNewDayOff] = useState({ date: '', label: '' });
   const { toast } = useToast();
 
   const loadData = useCallback(async () => {
@@ -27,8 +32,20 @@ export default function CadenceSettings() {
     ]);
     setTemplates(all);
     setPartnershipTypes(pts);
+    setDaysOffState(getDaysOff());
     setLoading(false);
   }, []);
+
+  const handleAddDayOff = () => {
+    if (!newDayOff.date) return;
+    setDaysOffState(addDayOff(newDayOff.date, newDayOff.label));
+    setNewDayOff({ date: '', label: '' });
+    toast({ title: 'Day off added', description: moment(newDayOff.date).format('dddd, MMM D, YYYY') });
+  };
+
+  const handleRemoveDayOff = (date) => {
+    setDaysOffState(removeDayOff(date));
+  };
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -164,6 +181,56 @@ export default function CadenceSettings() {
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         <h2 className="text-2xl font-bold text-gray-900 tracking-tight mb-6">Cadence Settings</h2>
+
+        {/* Days Off */}
+        <div className="bg-white rounded-xl border border-gray-100 p-5 mb-8">
+          <div className="flex items-center gap-2 mb-1">
+            <CalendarOff className="w-4 h-4 text-gray-500" />
+            <h3 className="font-semibold text-gray-900">Days Off</h3>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Holidays and vacation days. Automatic touches that land on a weekend or one of these
+            days are pushed to the next working day, and overdue coloring skips them too.
+          </p>
+
+          {daysOff.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {daysOff.map(d => (
+                <span key={d.date} className="inline-flex items-center gap-1.5 px-3 py-1 bg-gray-100 rounded-full text-sm text-gray-700">
+                  {moment(d.date).format('MMM D, YYYY')}
+                  {d.label && <span className="text-gray-400 text-xs">· {d.label}</span>}
+                  <button onClick={() => handleRemoveDayOff(d.date)} className="text-gray-400 hover:text-red-400 ml-1">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <Label className="text-xs text-gray-500">Date</Label>
+              <Input
+                type="date"
+                value={newDayOff.date}
+                onChange={e => setNewDayOff(p => ({ ...p, date: e.target.value }))}
+                className="mt-1 w-44"
+              />
+            </div>
+            <div className="flex-1 min-w-[12rem]">
+              <Label className="text-xs text-gray-500">Label (optional)</Label>
+              <Input
+                value={newDayOff.label}
+                onChange={e => setNewDayOff(p => ({ ...p, label: e.target.value }))}
+                placeholder="e.g. Thanksgiving, Vacation…"
+                className="mt-1"
+              />
+            </div>
+            <Button size="sm" onClick={handleAddDayOff} disabled={!newDayOff.date} className="gap-1.5">
+              <Plus className="w-4 h-4" /> Add Day Off
+            </Button>
+          </div>
+        </div>
 
         {/* Partnership Types */}
         <div className="bg-white rounded-xl border border-gray-100 p-5 mb-8">
