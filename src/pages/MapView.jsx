@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { base44 } from '@/api/localClient';
 import { Link, useNavigate } from 'react-router-dom';
-import { MapPin, Fuel, Users, Settings, Navigation, X, Route, ExternalLink, Sun, Zap } from 'lucide-react';
+import { MapPin, Fuel, Users, Settings, Navigation, X, Route, ExternalLink, Sun, Zap, Copy, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -23,6 +23,90 @@ const STATUS_COLORS = {
 
 // Excluded stages — won't appear on the map
 const EXCLUDED_STAGES = ['Nurture', 'Won', 'Lost'];
+
+// Map is limited to the Miami metro / tri-county South Florida area: roughly
+// West Palm Beach southward — Palm Beach, Broward, and Miami-Dade counties.
+// Leads outside this box are hidden from the MAP ONLY; they stay in the pipeline
+// and lead list everywhere else.
+const MIAMI_METRO = { south: 25.0, north: 27.0, west: -80.95, east: -79.95 };
+function inMiamiMetro(lat, lng) {
+  return (
+    lat != null && lng != null &&
+    lat >= MIAMI_METRO.south && lat <= MIAMI_METRO.north &&
+    lng >= MIAMI_METRO.west && lng <= MIAMI_METRO.east
+  );
+}
+
+// A lead's address counts as verified if it was confirmed via search (has a
+// maps_url) or was explicitly flagged verified.
+function isVerified(lead) {
+  return !!(lead.maps_url || lead.is_address_verified);
+}
+
+// Best text/coords to hand a maps app for one stop (real address, else coords).
+function stopQuery(lead) {
+  const addr = [lead.address, lead.zipcode].filter(Boolean).join(', ');
+  if (addr) return addr;
+  if (lead.lat != null && lead.lng != null) return `${lead.lat},${lead.lng}`;
+  return '';
+}
+
+// Throttled, cached geocoding so we stay polite to Nominatim (it asks for slow
+// request rates) and pins never randomly drop. Successful lookups are cached in
+// localStorage, so repeat map visits are instant and don't re-hit the network.
+const GEO_CACHE_KEY = 'gasoleads:geocache';
+const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
+function readGeoCache() {
+  try { return JSON.parse(localStorage.getItem(GEO_CACHE_KEY) || '{}'); } catch { return {}; }
+}
+function writeGeoCache(cache) {
+  try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(cache)); } catch { /* quota */ }
+}
+
+// Remove apartment/suite/unit designators (e.g. "Apt 306", "Suite 200", "#4B").
+// These sub-unit numbers routinely break street geocoding. We deliberately do
+// NOT match "floor/fl" so a state abbreviation like "FL" is never clobbered.
+function stripUnit(address) {
+  if (!address) return '';
+  const cleaned = address.replace(
+    /(?:#|\bapt\.?|\bapartment\b|\bste\.?|\bsuite\b|\bunit\b|\bbldg\.?|\bbuilding\b|\brm\.?|\broom\b)\s*#?\s*[a-z0-9][a-z0-9-]*/gi,
+    ''
+  );
+  // Re-join on commas to drop any empty segment the removal left behind.
+  return cleaned.split(',').map(p => p.trim()).filter(Boolean).join(', ').trim();
+}
+
+// Build the geocoding query for a lead: street address (unit stripped), anchored
+// with the ZIP code when present so "street + zip" lands on the right spot.
+function buildGeoQuery(lead) {
+  const street = stripUnit(lead.address || '');
+  const zip = (lead.zipcode || '').trim();
+  const parts = [];
+  if (street) parts.push(street);
+  if (zip && !street.includes(zip)) parts.push(zip); // anchor with zip
+  return parts.join(', ');
+}
+
+// Look up one free-text query -> {lat,lng} or null. Caches hits into `cache`.
+async function geocodeQuery(query, cache) {
+  const key = (query || '').trim().toLowerCase();
+  if (!key) return null;
+  if (cache[key]) return cache[key];
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
+      { headers: { 'Accept-Language': 'en' } }
+    );
+    const data = await res.json();
+    if (data && data[0]) {
+      const coord = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      cache[key] = coord;
+      return coord;
+    }
+  } catch { /* network/parse error -> not found; will retry on a later visit */ }
+  return null;
+}
 
 // Calculate color based on days since last contact
 function getContactAgeColor(lastTouchDate) {
@@ -57,8 +141,10 @@ export default function MapView() {
   const [loading, setLoading] = useState(true);
   const [geocoding, setGeocoding] = useState(false);
   const [pinnedLeads, setPinnedLeads] = useState([]);
+  const [unplaced, setUnplaced] = useState([]); // have address but failed to geocode
   const [stageFilter, setStageFilter] = useState('All');
   const [routeLeads, setRouteLeads] = useState([]); // selected for route
+  const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
 
   const loadData = useCallback(async () => {
@@ -76,60 +162,65 @@ export default function MapView() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Geocode addresses
+  // Geocode addresses — SEQUENTIALLY with a polite throttle and a localStorage
+  // cache, so pins resolve reliably (no more random drops from rate-limiting)
+  // and repeat visits are instant. Leads that have an address but can't be
+  // located are collected into `unplaced` so they're never silently missing.
   useEffect(() => {
-    if (leads.length === 0) { setPinnedLeads([]); return; }
     const withAddr = leads.filter(l => l.address || l.zipcode || l.maps_url);
-    if (withAddr.length === 0) { setPinnedLeads([]); return; }
+    if (withAddr.length === 0) { setPinnedLeads([]); setUnplaced([]); return; }
 
-    setGeocoding(true);
-    const geocodeAll = async () => {
-      try {
-        const results = await Promise.all(
-          withAddr.map(async (lead) => {
-            if (lead.maps_url) {
-              const match1 = lead.maps_url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-              if (match1) return { ...lead, lat: parseFloat(match1[1]), lng: parseFloat(match1[2]) };
+    let cancelled = false;
+    const cache = readGeoCache();
 
-              const match2 = lead.maps_url.match(/[?&]query=([^&]+)/);
-              if (match2) {
-                const decodedQuery = decodeURIComponent(match2[1]);
-                try {
-                  const res = await fetch(
-                    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(decodedQuery)}&format=json&limit=1`,
-                    { headers: { 'Accept-Language': 'en' } }
-                  );
-                  const data = await res.json();
-                  if (data && data[0]) return { ...lead, lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-                } catch {}
-              }
-            }
+    const run = async () => {
+      setGeocoding(true);
+      const placed = [];
+      const failed = [];
+      let madeNetworkCall = false;
 
-            const query = [lead.address, lead.zipcode].filter(Boolean).join(' ');
-            if (!query) return null;
+      for (const lead of withAddr) {
+        if (cancelled) return;
+        let coord = null;
 
-            try {
-              const res = await fetch(
-                `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
-                { headers: { 'Accept-Language': 'en' } }
-              );
-              const data = await res.json();
-              if (data && data[0]) return { ...lead, lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-            } catch {}
+        // 1) Coordinates embedded in a verified maps_url — no network needed.
+        const at = lead.maps_url && lead.maps_url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+        if (at) {
+          coord = { lat: parseFloat(at[1]), lng: parseFloat(at[2]) };
+        } else {
+          // 2) Build a query: maps_url's ?query=, else the normalized address
+          //    (apt/suite/unit stripped, anchored with ZIP).
+          let query = '';
+          const qm = lead.maps_url && lead.maps_url.match(/[?&]query=([^&]+)/);
+          if (qm) { try { query = decodeURIComponent(qm[1]); } catch { query = qm[1]; } }
+          if (!query) query = buildGeoQuery(lead);
 
-            return null;
-          })
-        );
-        const verified = results.filter(Boolean).map(r => ({ ...r, is_address_verified: true }));
-        setPinnedLeads(verified);
-      } catch (error) {
-        console.error('Error geocoding addresses:', error);
-        setPinnedLeads([]);
-      } finally {
-        setGeocoding(false);
+          const key = query.trim().toLowerCase();
+          if (key && cache[key]) {
+            coord = cache[key]; // cached — instant, no throttle
+          } else if (key) {
+            if (madeNetworkCall) await delay(1100); // ~1 req/sec to Nominatim
+            if (cancelled) return;
+            coord = await geocodeQuery(query, cache);
+            madeNetworkCall = true;
+          }
+        }
+
+        if (coord) placed.push({ ...lead, lat: coord.lat, lng: coord.lng });
+        else failed.push({ id: lead.id, name: lead.company_name || lead.name });
+
+        if (!cancelled) setPinnedLeads([...placed]); // stream pins as they resolve
       }
+
+      if (cancelled) return;
+      writeGeoCache(cache);
+      setPinnedLeads(placed);
+      setUnplaced(failed);
+      setGeocoding(false);
     };
-    geocodeAll();
+
+    run();
+    return () => { cancelled = true; };
   }, [leads]);
 
   const [zipFilter, setZipFilter] = useState('');
@@ -137,6 +228,7 @@ export default function MapView() {
   const [relationshipFilter, setRelationshipFilter] = useState('All');
 
   const filtered = pinnedLeads.filter(l => {
+    if (!inMiamiMetro(l.lat, l.lng)) return false; // map shows Miami metro only
     if (stageFilter !== 'All' && l.stage !== stageFilter) return false;
     if (zipFilter && !(l.zipcode || '').includes(zipFilter)) return false;
     if (industryFilter && !(l.job_industry || '').toLowerCase().includes(industryFilter.toLowerCase())) return false;
@@ -144,8 +236,13 @@ export default function MapView() {
     return true;
   });
 
-  const center = filtered.length > 0 ? [filtered[0].lat, filtered[0].lng] : [39.5, -98.35];
-  const zoom = filtered.length > 0 ? 10 : 4;
+  // Leads that geocoded fine but sit outside the Miami metro box (hidden from the
+  // map only — still in the pipeline). Shown as a separate, quieter note.
+  const placedOutside = pinnedLeads.filter(l => !inMiamiMetro(l.lat, l.lng));
+
+  // Default to the Miami metro view when nothing is pinned yet.
+  const center = filtered.length > 0 ? [filtered[0].lat, filtered[0].lng] : [25.95, -80.2];
+  const zoom = filtered.length > 0 ? 10 : 9;
 
   const toggleRoutePin = (lead) => {
     setRouteLeads(prev =>
@@ -157,26 +254,46 @@ export default function MapView() {
 
   const inRoute = (lead) => routeLeads.some(l => l.id === lead.id);
 
+  // Google Maps carries ALL stops: current location -> each stop in order ->
+  // destination (last stop). Origin is omitted so Maps uses your live location.
   const buildGoogleMapsUrl = () => {
-    if (routeLeads.length === 0) return '';
-    const addrs = routeLeads.map(l => encodeURIComponent([l.address, l.zipcode].filter(Boolean).join(', ')));
-    if (addrs.length === 1) return `https://www.google.com/maps/search/?api=1&query=${addrs[0]}`;
-    const [first, ...rest] = addrs;
-    const dest = rest[rest.length - 1];
-    const waypoints = rest.slice(0, -1).join('|');
-    return `https://www.google.com/maps/dir/?api=1&origin=My+Location&destination=${dest}${waypoints ? `&waypoints=${waypoints}` : ''}`;
+    const stops = routeLeads.map(stopQuery).filter(Boolean);
+    if (stops.length === 0) return '';
+    if (stops.length === 1) {
+      return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stops[0])}&travelmode=driving`;
+    }
+    const destination = encodeURIComponent(stops[stops.length - 1]);
+    const waypoints = stops.slice(0, -1).map(encodeURIComponent).join('%7C');
+    return `https://www.google.com/maps/dir/?api=1&destination=${destination}&waypoints=${waypoints}&travelmode=driving`;
   };
 
+  // Apple Maps & Waze URL schemes are single-destination, so they navigate to
+  // the FIRST stop (your immediate next destination) using its real address.
   const buildAppleMapsUrl = () => {
     if (routeLeads.length === 0) return '';
-    const addrs = routeLeads.map(l => [l.address, l.zipcode].filter(Boolean).join(', '));
-    return `https://maps.apple.com/?daddr=${encodeURIComponent(addrs[addrs.length - 1])}&dirflg=d`;
+    const q = stopQuery(routeLeads[0]);
+    return q ? `https://maps.apple.com/?daddr=${encodeURIComponent(q)}&dirflg=d` : '';
   };
 
   const buildWazeUrl = () => {
     if (routeLeads.length === 0) return '';
-    const last = routeLeads[routeLeads.length - 1];
-    return `https://waze.com/ul?ll=${last.lat},${last.lng}&navigate=yes`;
+    const first = routeLeads[0];
+    if (first.lat != null && first.lng != null) return `https://waze.com/ul?ll=${first.lat},${first.lng}&navigate=yes`;
+    const q = stopQuery(first);
+    return q ? `https://waze.com/ul?q=${encodeURIComponent(q)}&navigate=yes` : '';
+  };
+
+  const googleUrl = buildGoogleMapsUrl();
+  const appleUrl = buildAppleMapsUrl();
+  const wazeUrl = buildWazeUrl();
+
+  const copyGoogleUrl = async () => {
+    if (!googleUrl) return;
+    try {
+      await navigator.clipboard.writeText(googleUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard unavailable */ }
   };
 
   if (loading) {
@@ -306,19 +423,78 @@ export default function MapView() {
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-blue-700 font-medium">Export to:</span>
-              <a href={buildGoogleMapsUrl()} target="_blank" rel="noopener noreferrer"
+              <a href={googleUrl} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm">
                 <ExternalLink className="w-3.5 h-3.5" />Google Maps
               </a>
-              <a href={buildAppleMapsUrl()} target="_blank" rel="noopener noreferrer"
+              <a href={appleUrl} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-1.5 px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm">
                 <Navigation className="w-3.5 h-3.5" />Apple Maps
               </a>
-              <a href={buildWazeUrl()} target="_blank" rel="noopener noreferrer"
+              <a href={wazeUrl} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-1.5 px-4 py-2 bg-[#00d2ff] hover:bg-[#00bce8] text-gray-900 text-xs font-semibold rounded-lg transition-colors shadow-sm">
                 <Navigation className="w-3.5 h-3.5" />Waze
               </a>
             </div>
+
+            {/* Copyable Google Maps route link */}
+            <div>
+              <label className="text-xs text-blue-700 font-medium block mb-1">Google Maps route link</label>
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  value={googleUrl}
+                  onFocus={e => e.target.select()}
+                  className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-white text-[11px] font-mono text-gray-700 truncate"
+                />
+                <button
+                  onClick={copyGoogleUrl}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 text-xs font-semibold rounded-lg transition-colors shrink-0"
+                >
+                  {copied ? <><Check className="w-3.5 h-3.5" />Copied</> : <><Copy className="w-3.5 h-3.5" />Copy</>}
+                </button>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-blue-700/80">
+              Google Maps includes every stop in order. Apple Maps &amp; Waze open turn-by-turn to your first stop.
+            </p>
+          </div>
+        )}
+
+        {/* Couldn't-place notice */}
+        {!geocoding && unplaced.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-800">
+            <div className="font-medium mb-1.5">
+              ⚠ {unplaced.length} lead{unplaced.length !== 1 ? 's have' : ' has'} an address but couldn't be placed on the map
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {unplaced.map(u => (
+                <Link
+                  key={u.id}
+                  to={`/leads/${u.id}`}
+                  className="px-2 py-0.5 bg-white border border-amber-200 rounded-md text-xs font-medium text-amber-900 hover:bg-amber-100"
+                >
+                  {u.name}
+                </Link>
+              ))}
+            </div>
+            <div className="text-xs text-amber-700/80 mt-1.5">
+              Open the lead and use a full street address (street, city, state, ZIP) so it can be located.
+            </div>
+          </div>
+        )}
+
+        {/* Outside-metro note */}
+        {!geocoding && placedOutside.length > 0 && (
+          <div className="text-xs text-gray-500">
+            {placedOutside.length} lead{placedOutside.length !== 1 ? 's are' : ' is'} outside the Miami metro area and hidden from the map (still in your pipeline):{' '}
+            {placedOutside.map((l, i) => (
+              <React.Fragment key={l.id}>
+                <Link to={`/leads/${l.id}`} className="text-gray-600 hover:text-gray-900 underline">{l.company_name || l.name}</Link>
+                {i < placedOutside.length - 1 ? ', ' : ''}
+              </React.Fragment>
+            ))}
           </div>
         )}
 
@@ -348,6 +524,14 @@ export default function MapView() {
                 position={[lead.lat, lead.lng]}
                 icon={createStatusIcon(STATUS_COLORS[getContactAgeColor(lead.last_touch_date)])}
               >
+                <Tooltip direction="top" offset={[0, -22]}>
+                  <div className="text-xs">
+                    <div className="font-semibold text-gray-900">{lead.company_name || lead.name}</div>
+                    {isVerified(lead)
+                      ? <div className="text-green-600">✓ Address verified</div>
+                      : <div className="text-amber-600">⚠ Address not verified</div>}
+                  </div>
+                </Tooltip>
                 <Popup maxWidth={240}>
                   <div className="text-sm space-y-1.5">
                     <div className="font-semibold text-gray-900">{lead.company_name || lead.name}</div>
@@ -357,7 +541,10 @@ export default function MapView() {
                       <span className={`w-2 h-2 rounded-full inline-block ${getContactAgeColor(lead.last_touch_date) === 'red' ? 'bg-red-500' : getContactAgeColor(lead.last_touch_date) === 'yellow' ? 'bg-yellow-400' : 'bg-green-500'}`} />
                       <span className="text-gray-600">{lead.stage}</span>
                     </div>
-                    {lead.address && <div className="text-xs text-gray-500">📍 {lead.address}{lead.zipcode ? ` ${lead.zipcode}` : ''}{!lead.is_address_verified && <span className="ml-1 text-gray-400">(NV)</span>}</div>}
+                    {lead.address && <div className="text-xs text-gray-500">📍 {lead.address}{lead.zipcode ? ` ${lead.zipcode}` : ''}</div>}
+                    <div className={`text-xs font-medium ${isVerified(lead) ? 'text-green-600' : 'text-amber-600'}`}>
+                      {isVerified(lead) ? '✓ Address verified' : '⚠ Address not verified'}
+                    </div>
                     <div className="flex items-center gap-2 pt-1">
                       <button
                         onClick={() => navigate(`/leads/${lead.id}`)}

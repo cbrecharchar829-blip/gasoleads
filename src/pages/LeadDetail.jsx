@@ -141,6 +141,15 @@ export default function LeadDetail() {
       phones: (editForm.phones || []).filter(p => p && (p.value || '').trim()),
       emails: (editForm.emails || []).filter(e => e && (e.value || '').trim()),
     };
+    // If the address/ZIP was hand-edited but no new verified maps_url was given,
+    // drop the stale maps_url so the Map re-geocodes from the NEW address.
+    // (The map prefers maps_url; keeping the old one would pin the old spot.)
+    const addrChanged = (editForm.address || '') !== (lead.address || '') || (editForm.zipcode || '') !== (lead.zipcode || '');
+    const mapsUrlChanged = (editForm.maps_url || '') !== (lead.maps_url || '');
+    if (addrChanged && !mapsUrlChanged) {
+      cleaned.maps_url = '';
+      cleaned.is_address_verified = false;
+    }
     await base44.entities.Lead.update(leadId, cleaned);
     setEditing(false);
     toast({ title: 'Lead updated' });
