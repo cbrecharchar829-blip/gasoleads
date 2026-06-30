@@ -3,7 +3,7 @@ import { base44 } from '@/api/localClient';
 import { useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import moment from 'moment';
-import { Plus, Users, Settings, Fuel, ChevronRight, Phone, Mail, MapPin, CheckSquare, Square, Map, Sun } from 'lucide-react';
+import { Plus, Users, Settings, Fuel, ChevronRight, Phone, Mail, MapPin, CheckSquare, Square, Map, Sun, Trash2, Zap } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -15,27 +15,21 @@ import LeadFilters from '@/components/leads/LeadFilters';
 import AddLeadDialog from '@/components/leads/AddLeadDialog';
 import { calculateColorStatus } from '@/lib/cadenceUtils';
 import { addLead } from '@/lib/leadActions';
+import { isTintable, nextTint, CPA_TINT_CARD, CPA_TINT_SWATCH } from '@/lib/cpaTint';
+import { matchesCategoryFilters, emptyFilters } from '@/lib/leadFilters';
+import CompetitorTag from '@/components/leads/CompetitorTag';
 
 const companyAccent = {
   'ADP': 'border-l-4 border-l-red-500 bg-white',
   'CaneyCloud/VAV': 'border-l-4 border-l-[#c0654a] bg-[#fdf3f0]',
 };
 
-// Search across the lead's real fields, including phone/email arrays.
-function leadMatchesSearch(l, q) {
-  const query = q.toLowerCase();
-  const fields = [l.name, l.company_name, l.company, l.decision_maker, l.gatekeeper, l.address];
-  (l.phones || []).forEach(p => fields.push(p.value));
-  (l.emails || []).forEach(e => fields.push(e.value));
-  return fields.filter(Boolean).some(f => f.toLowerCase().includes(query));
-}
-
 export default function Leads() {
   const [leads, setLeads] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
-  const [filters, setFilters] = useState({ search: '', company: '', relationship_type: '', stage: '', industry: '', zipcode: '', sort: 'newest' });
+  const [filters, setFilters] = useState(emptyFilters());
   const [selected, setSelected] = useState(new Set());
   const [showClosed, setShowClosed] = useState(false);
   const navigate = useNavigate();
@@ -66,12 +60,7 @@ export default function Leads() {
 
   const filteredLeads = leads.filter(l => {
     if (!showClosed && (l.stage === 'Won' || l.stage === 'Lost')) return false;
-    if (filters.company && l.company !== filters.company) return false;
-    if (filters.relationship_type && l.relationship_type !== filters.relationship_type) return false;
-    if (filters.stage && l.stage !== filters.stage) return false;
-    if (filters.industry && !(l.job_industry || '').toLowerCase().includes(filters.industry.toLowerCase())) return false;
-    if (filters.zipcode && !(l.zipcode || '').toLowerCase().includes(filters.zipcode.toLowerCase())) return false;
-    if (filters.search && !leadMatchesSearch(l, filters.search)) return false;
+    if (!matchesCategoryFilters(l, filters)) return false;
     return true;
   }).sort((a, b) => {
     const da = new Date(a.created_date), db = new Date(b.created_date);
@@ -116,6 +105,20 @@ export default function Leads() {
     }
   };
 
+  const handleSetTint = async (lead, tint, e) => {
+    e.stopPropagation();
+    await base44.entities.Lead.update(lead.id, { cpa_tint: tint });
+    loadData();
+  };
+
+  const handleDeleteLead = async (lead, e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete ${lead.name}? This cannot be undone.`)) return;
+    await base44.entities.Lead.delete(lead.id);
+    toast({ title: 'Lead deleted' });
+    loadData();
+  };
+
   const cycleImportance = async (lead, e) => {
     e.stopPropagation();
     const nextLevel = ((lead.importance || 0) % 3) + 1;
@@ -142,6 +145,9 @@ export default function Leads() {
              <h1 className="text-lg font-semibold text-gray-900 tracking-tight">GASOLEADS</h1>
            </div>
           <nav className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/blitzkrieg" className="text-gray-500 flex items-center gap-1.5"><Zap className="w-4 h-4" />Blitzkrieg</Link>
+            </Button>
             <Button variant="ghost" size="sm" asChild>
               <Link to="/" className="text-gray-500 flex items-center gap-1.5"><Sun className="w-4 h-4" />Today</Link>
             </Button>
@@ -230,10 +236,15 @@ export default function Leads() {
               {selected.size === filteredLeads.length && filteredLeads.length > 0 ? 'Deselect all' : 'Select all'}
             </button>
           <div className="space-y-1">
-            {filteredLeads.map(lead => (
+            {filteredLeads.map(lead => {
+              const tintable = isTintable(lead);
+              const tint = lead.cpa_tint || '';
+              const isSel = selected.has(lead.id);
+              const tintCard = !isSel && tintable && tint ? CPA_TINT_CARD[tint] : '';
+              return (
               <div
                 key={lead.id}
-                className={`w-full flex items-center gap-3 p-4 rounded-xl border transition-all ${selected.has(lead.id) ? 'border-gray-400 bg-gray-50' : 'border-gray-100 hover:border-gray-200'} ${!selected.has(lead.id) ? (companyAccent[lead.company] || 'bg-white') : ''}`}
+                className={`w-full flex items-center gap-3 p-4 rounded-xl border transition-all hover:border-gray-200 ${isSel ? 'border-gray-400 bg-gray-50' : (tintCard || `border-gray-100 ${companyAccent[lead.company] || 'bg-white'}`)}`}
               >
                 <button onClick={e => toggleSelect(lead.id, e)} className="shrink-0 text-gray-400 hover:text-gray-700">
                   {selected.has(lead.id) ? <CheckSquare className="w-4 h-4 text-gray-800" /> : <Square className="w-4 h-4" />}
@@ -244,6 +255,7 @@ export default function Leads() {
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="font-semibold text-gray-900 truncate">{lead.company_name || lead.name}</span>
                     <StageBadge stage={lead.stage} />
+                    <CompetitorTag name={lead.competitor} className="shrink-0" />
                   </div>
                   {lead.company_name && (
                     <p className="text-xs text-gray-500 mb-0.5">{lead.name}</p>
@@ -261,13 +273,31 @@ export default function Leads() {
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400">
                     {lead.decision_maker && <span className="inline-flex items-center gap-1"><Users className="w-3 h-3" />{lead.decision_maker}</span>}
                     {lead.gatekeeper && <span className="inline-flex items-center gap-1">GK: {lead.gatekeeper}</span>}
-                    {lead.phones?.[0]?.value && <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3" />{lead.phones[0].value}</span>}
-                    {lead.emails?.[0]?.value && <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" />{lead.emails[0].value}</span>}
+                    {(lead.phones?.[0]?.value || lead.phone) && <span className="inline-flex items-center gap-1"><Phone className="w-3 h-3" />{lead.phones?.[0]?.value || lead.phone}</span>}
+                    {(lead.emails?.[0]?.value || lead.email) && <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" />{lead.emails?.[0]?.value || lead.email}</span>}
                     {lead.address && <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" />{lead.address}{lead.zipcode ? ` ${lead.zipcode}` : ''}</span>}
                   </div>
                 </div>
                   <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />
                   </button>
+                  {tintable && (
+                    <button
+                      onClick={(e) => handleSetTint(lead, nextTint(tint), e)}
+                      className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md border border-gray-200 hover:bg-gray-50 transition-colors"
+                      title="Tap to set Partner tint (cycles green → yellow → red → none)"
+                    >
+                      <span className={`w-3.5 h-3.5 rounded-full border border-black/10 ${CPA_TINT_SWATCH[tint]}`} />
+                    </button>
+                  )}
+                  {tintable && tint === 'red' && (
+                    <button
+                      onClick={(e) => handleDeleteLead(lead, e)}
+                      className="shrink-0 text-red-400 hover:text-red-600 transition-colors"
+                      title="Delete lead"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                   <button
                   onClick={(e) => cycleImportance(lead, e)}
                   className="shrink-0 text-gray-300 hover:text-gray-700 text-lg transition-colors"
@@ -276,7 +306,8 @@ export default function Leads() {
                   <span>{['', '!', '!!', '!!!'][lead.importance || 0] || ''}</span>
                   </button>
                   </div>
-            ))}
+              );
+            })}
           </div>
           </>
         )}

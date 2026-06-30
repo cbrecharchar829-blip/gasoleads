@@ -4,17 +4,49 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { STAGES } from '@/lib/cadenceUtils';
+import { activeCategoryCount, emptyFilters } from '@/lib/leadFilters';
 
 const COMPANIES = ['ADP', 'CaneyCloud/VAV'];
 const RELATIONSHIP_TYPES = ['Prospect', 'Partner', 'Client'];
 
-function AutocompleteInput({ value, onChange, suggestions, placeholder, label }) {
+// Toggle-chip group for fixed-option categories (multi-select, OR within).
+function ChipGroup({ label, options, selected, onToggle }) {
+  const sel = selected || [];
+  return (
+    <div>
+      <label className="text-xs text-gray-500 mb-1 block">{label}</label>
+      <div className="flex flex-wrap gap-1">
+        {options.map(opt => {
+          const active = sel.includes(opt);
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onToggle(opt)}
+              className={`px-2 py-1 rounded-md text-xs border transition-colors ${active ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+            >
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Autocomplete that builds a list of removable chips (multi-select, OR within).
+// Selecting a suggestion or pressing Enter adds the value; free text is allowed.
+function MultiAutocomplete({ label, values, onChange, suggestions, placeholder }) {
+  const [input, setInput] = useState('');
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const sel = values || [];
 
-  const filtered = value
-    ? [...new Set(suggestions.filter(s => s && s.toLowerCase().includes(value.toLowerCase()) && s.toLowerCase() !== value.toLowerCase()))].slice(0, 8)
-    : [];
+  const pool = [...new Set(suggestions.filter(Boolean))].filter(s => !sel.includes(s));
+  const filtered = (input
+    ? pool.filter(s => s.toLowerCase().includes(input.toLowerCase()))
+    : pool
+  ).slice(0, 8);
 
   useEffect(() => {
     const handleClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -22,27 +54,40 @@ function AutocompleteInput({ value, onChange, suggestions, placeholder, label })
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
+  const add = (v) => {
+    const t = (v || '').trim();
+    if (t && !sel.includes(t)) onChange([...sel, t]);
+    setInput('');
+  };
+  const remove = (v) => onChange(sel.filter(x => x !== v));
+
   return (
     <div ref={ref} className="relative">
       <label className="text-xs text-gray-500 mb-1 block">{label}</label>
+      {sel.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-1">
+          {sel.map(v => (
+            <span key={v} className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-700 rounded-md px-1.5 py-0.5">
+              {v}
+              <button onClick={() => remove(v)} className="text-gray-400 hover:text-gray-700"><X className="w-3 h-3" /></button>
+            </span>
+          ))}
+        </div>
+      )}
       <Input
-        value={value}
-        onChange={e => { onChange(e.target.value); setOpen(true); }}
+        value={input}
+        onChange={e => { setInput(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(input); } }}
         placeholder={placeholder}
         className="h-8 text-xs"
       />
-      {value && (
-        <button onClick={() => { onChange(''); setOpen(false); }} className="absolute right-2 top-[26px] text-gray-400 hover:text-gray-600">
-          <X className="w-3 h-3" />
-        </button>
-      )}
       {open && filtered.length > 0 && (
         <ul className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg text-xs max-h-40 overflow-y-auto">
           {filtered.map(s => (
             <li
               key={s}
-              onMouseDown={() => { onChange(s); setOpen(false); }}
+              onMouseDown={() => { add(s); }}
               className="px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-gray-700 truncate"
             >
               {s}
@@ -57,13 +102,22 @@ function AutocompleteInput({ value, onChange, suggestions, placeholder, label })
 export default function LeadFilters({ filters, onChange, leads = [] }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const set = (key, val) => onChange({ ...filters, [key]: val === 'all' ? '' : val });
-  const clearAll = () => onChange({ search: '', company: '', relationship_type: '', stage: '', industry: '', zipcode: '', sort: 'newest' });
+  const toggle = (key, val) => {
+    const cur = filters[key] || [];
+    const next = cur.includes(val) ? cur.filter(v => v !== val) : [...cur, val];
+    onChange({ ...filters, [key]: next });
+  };
+  const setValues = (key, vals) => onChange({ ...filters, [key]: vals });
+  const setOne = (key, val) => onChange({ ...filters, [key]: val });
+  const clearAll = () => onChange(emptyFilters());
 
-  const activeFilterCount = [filters.company, filters.relationship_type, filters.stage, filters.industry, filters.zipcode].filter(Boolean).length;
+  const activeFilterCount = activeCategoryCount(filters);
 
-  const industrySuggestions = leads.map(l => l.job_industry).filter(Boolean);
-  const zipcodeSuggestions = leads.map(l => l.zipcode).filter(Boolean);
+  const uniq = (sel) => [...new Set(leads.map(sel).filter(Boolean))];
+  const industrySuggestions = uniq(l => l.job_industry);
+  const zipcodeSuggestions = uniq(l => l.zipcode);
+  const productSuggestions = uniq(l => l.product);
+  const competitorSuggestions = uniq(l => l.competitor);
 
   return (
     <div className="space-y-3">
@@ -73,12 +127,12 @@ export default function LeadFilters({ filters, onChange, leads = [] }) {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
           <Input
             value={filters.search || ''}
-            onChange={e => set('search', e.target.value)}
+            onChange={e => setOne('search', e.target.value)}
             placeholder="Search by name, company, phone, email…"
             className="pl-9"
           />
           {filters.search && (
-            <button onClick={() => set('search', '')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+            <button onClick={() => setOne('search', '')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
               <X className="w-3.5 h-3.5" />
             </button>
           )}
@@ -101,72 +155,37 @@ export default function LeadFilters({ filters, onChange, leads = [] }) {
 
       {/* Advanced filters */}
       {showAdvanced && (
-        <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {/* Sort */}
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Sort By</label>
-              <Select value={filters.sort || 'newest'} onValueChange={v => set('sort', v)}>
-                <SelectTrigger className="h-8 text-xs">
-                  <ArrowUpDown className="w-3 h-3 mr-1 text-gray-400" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="newest">Newest first</SelectItem>
-                  <SelectItem value="oldest">Oldest first</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {/* Company */}
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Company</label>
-              <Select value={filters.company || 'all'} onValueChange={v => set('company', v)}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  {COMPANIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            {/* Relationship */}
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Relationship</label>
-              <Select value={filters.relationship_type || 'all'} onValueChange={v => set('relationship_type', v)}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  {RELATIONSHIP_TYPES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            {/* Stage */}
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Stage</label>
-              <Select value={filters.stage || 'all'} onValueChange={v => set('stage', v)}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All</SelectItem>
-                  {STAGES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            {/* Industry autocomplete */}
-            <AutocompleteInput
-              label="Industry"
-              value={filters.industry || ''}
-              onChange={v => set('industry', v)}
-              suggestions={industrySuggestions}
-              placeholder="e.g. Healthcare"
-            />
-            {/* ZIP autocomplete */}
-            <AutocompleteInput
-              label="ZIP Code"
-              value={filters.zipcode || ''}
-              onChange={v => set('zipcode', v)}
-              suggestions={zipcodeSuggestions}
-              placeholder="e.g. 77001"
-            />
+        <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-4">
+          {/* Sort (single-select) */}
+          <div className="w-40">
+            <label className="text-xs text-gray-500 mb-1 block">Sort By</label>
+            <Select value={filters.sort || 'newest'} onValueChange={v => setOne('sort', v)}>
+              <SelectTrigger className="h-8 text-xs">
+                <ArrowUpDown className="w-3 h-3 mr-1 text-gray-400" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest first</SelectItem>
+                <SelectItem value="oldest">Oldest first</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
+
+          <p className="text-[11px] text-gray-400 -mb-1">Pick multiple in any category — matches use OR within a category, AND across categories.</p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <ChipGroup label="Company" options={COMPANIES} selected={filters.company} onToggle={v => toggle('company', v)} />
+            <ChipGroup label="Relationship" options={RELATIONSHIP_TYPES} selected={filters.relationship_type} onToggle={v => toggle('relationship_type', v)} />
+            <ChipGroup label="Stage" options={STAGES} selected={filters.stage} onToggle={v => toggle('stage', v)} />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <MultiAutocomplete label="Industry" values={filters.industry} onChange={vals => setValues('industry', vals)} suggestions={industrySuggestions} placeholder="Add industry…" />
+            <MultiAutocomplete label="ZIP Code" values={filters.zipcode} onChange={vals => setValues('zipcode', vals)} suggestions={zipcodeSuggestions} placeholder="Add ZIP…" />
+            <MultiAutocomplete label="Product" values={filters.product} onChange={vals => setValues('product', vals)} suggestions={productSuggestions} placeholder="Add product…" />
+            <MultiAutocomplete label="Competitor" values={filters.competitor} onChange={vals => setValues('competitor', vals)} suggestions={competitorSuggestions} placeholder="Add competitor…" />
+          </div>
+
           {(activeFilterCount > 0 || (filters.sort && filters.sort !== 'newest')) && (
             <div className="flex justify-end">
               <button onClick={clearAll} className="text-xs text-gray-400 hover:text-gray-700 flex items-center gap-1">

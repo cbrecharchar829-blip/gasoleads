@@ -16,6 +16,7 @@ const EMPTY_FORM = {
   company_name: '', decision_maker: '', gatekeeper: '',
   name: '', company: 'ADP', phones: [], emails: [],
   linkedin_url: '', instagram: '', job_industry: '',
+  product: '', competitor: '',
   relationship_type: 'Prospect', client_status: 'New',
   address: '', zipcode: '', maps_url: '', count: '', roll_call: '',
 };
@@ -179,7 +180,17 @@ export default function AddLeadDialog({ open, onOpenChange, onSave }) {
           </div>
           <div>
             <Label>Job / Industry</Label>
-            <Input value={form.job_industry} onChange={e => set('job_industry', e.target.value)} placeholder="Sales Manager, SaaS, etc." className="h-10" />
+            <Input value={form.job_industry} onChange={e => set('job_industry', e.target.value)} placeholder="Sales Manager, SaaS, CPA, etc." className="h-10" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <Label>Product <span className="text-gray-400 font-normal">(optional)</span></Label>
+              <Input value={form.product} onChange={e => set('product', e.target.value)} placeholder="e.g. Payroll, RUN, WorkforceNow" className="h-10" />
+            </div>
+            <div>
+              <Label>Competitor <span className="text-gray-400 font-normal">(optional)</span></Label>
+              <Input value={form.competitor} onChange={e => set('competitor', e.target.value)} placeholder="e.g. Paychex — tags lead CT" className="h-10" />
+            </div>
           </div>
           <div>
             <Label>{form.company === 'ADP' ? 'Number of Employees' : 'Number of Rooms'}</Label>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { base44 } from '@/api/localClient';
 import { Link } from 'react-router-dom';
-import { Fuel, Users, Settings, Save, Plus, X, Sun, Map } from 'lucide-react';
+import { Fuel, Users, Settings, Save, Plus, X, Sun, Map, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -143,6 +143,9 @@ export default function CadenceSettings() {
              <h1 className="text-lg font-semibold text-gray-900 tracking-tight">GASOLEADS</h1>
            </div>
           <nav className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/blitzkrieg" className="text-gray-500 flex items-center gap-1.5"><Zap className="w-4 h-4" />Blitzkrieg</Link>
+            </Button>
             <Button variant="ghost" size="sm" asChild>
               <Link to="/" className="text-gray-500 flex items-center gap-1.5"><Sun className="w-4 h-4" />Today</Link>
             </Button>

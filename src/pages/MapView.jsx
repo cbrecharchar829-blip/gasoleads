@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { base44 } from '@/api/localClient';
 import { Link, useNavigate } from 'react-router-dom';
-import { MapPin, Fuel, Users, Settings, Navigation, X, Route, ExternalLink, Sun } from 'lucide-react';
+import { MapPin, Fuel, Users, Settings, Navigation, X, Route, ExternalLink, Sun, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -199,6 +199,9 @@ export default function MapView() {
              <h1 className="text-lg font-semibold text-gray-900 tracking-tight">GASOLEADS</h1>
            </div>
           <nav className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/blitzkrieg" className="text-gray-500 flex items-center gap-1.5"><Zap className="w-4 h-4" />Blitzkrieg</Link>
+            </Button>
             <Button variant="ghost" size="sm" asChild>
               <Link to="/" className="text-gray-500 flex items-center gap-1.5"><Sun className="w-4 h-4" />Today</Link>
             </Button>

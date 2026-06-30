@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Home from "@/pages/Home";
+import Blitzkrieg from "@/pages/Blitzkrieg";
 import Leads from "@/pages/Leads";
 import LeadDetail from "@/pages/LeadDetail";
 import MapView from "@/pages/MapView";
@@ -11,6 +12,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/blitzkrieg" element={<Blitzkrieg />} />
         <Route path="/leads" element={<Leads />} />
         <Route path="/leads/:id" element={<LeadDetail />} />
         <Route path="/map" element={<MapView />} />

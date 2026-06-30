@@ -16,6 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import StatusBadge from '@/components/leads/StatusBadge';
 import StageBadge from '@/components/leads/StageBadge';
 import ChannelIcon from '@/components/leads/ChannelIcon';
+import CompetitorTag from '@/components/leads/CompetitorTag';
 import { STAGES, calculateColorStatus, getCadenceKey } from '@/lib/cadenceUtils';
 import { markTouchDone } from '@/lib/leadActions';
 
@@ -65,6 +66,7 @@ export default function LeadDetail() {
      company: leadData.company || 'ADP',
      linkedin_url: leadData.linkedin_url || '', instagram: leadData.instagram || '',
      job_industry: leadData.job_industry || '',
+     product: leadData.product || '', competitor: leadData.competitor || '',
      address: leadData.address || '',
      zipcode: leadData.zipcode || '',
      maps_url: leadData.maps_url || '',
@@ -269,6 +271,7 @@ export default function LeadDetail() {
             <StatusBadge color={lead.color_status} size="md" stage={lead.stage} />
             <h1 className="text-lg font-semibold text-gray-900 truncate">{lead.name}</h1>
             <StageBadge stage={lead.stage} />
+            <CompetitorTag name={lead.competitor} className="shrink-0" />
           </div>
           <AlertDialog>
             <AlertDialogTrigger asChild>
@@ -413,6 +416,16 @@ export default function LeadDetail() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
+                  <label className="text-xs text-gray-500">Product</label>
+                  <Input value={editForm.product} onChange={e => setEditForm(p => ({ ...p, product: e.target.value }))} placeholder="e.g. Payroll" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Competitor</label>
+                  <Input value={editForm.competitor} onChange={e => setEditForm(p => ({ ...p, competitor: e.target.value }))} placeholder="e.g. Paychex — tags CT" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
                   <label className="text-xs text-gray-500">LinkedIn</label>
                   <Input value={editForm.linkedin_url} onChange={e => setEditForm(p => ({ ...p, linkedin_url: e.target.value }))} />
                 </div>
@@ -510,6 +523,21 @@ export default function LeadDetail() {
                 <div className="flex items-center gap-2 text-gray-600 col-span-2">
                   <Briefcase className="w-4 h-4 text-gray-400" />
                   <span>{lead.job_industry}</span>
+                </div>
+              )}
+              {lead.product && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <span className="text-xs text-gray-400 w-24 shrink-0">Product</span>
+                  <span>{lead.product}</span>
+                </div>
+              )}
+              {lead.competitor && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <span className="text-xs text-gray-400 w-24 shrink-0">Competitor</span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded px-1 py-0.5">CT</span>
+                    {lead.competitor}
+                  </span>
                 </div>
               )}
               {lead.count && (

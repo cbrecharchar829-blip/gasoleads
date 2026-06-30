@@ -18,3 +18,15 @@ body {
 .leaflet-bottom {
   z-index: 10;
 }
+
+/* Make the native date picker's calendar icon always visible — in narrow grid
+   columns Chrome otherwise clips it off the right edge. */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  margin-inline-start: 0;
+  padding-inline-start: 0;
+  cursor: pointer;
+  opacity: 0.55;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}

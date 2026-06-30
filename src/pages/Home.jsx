@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { base44 } from '@/api/localClient';
 import { Link } from 'react-router-dom';
 import moment from 'moment';
-import { Plus, Users, Settings, CalendarCheck, Fuel, UserPlus, X, MapPin, Sun } from 'lucide-react';
+import { Plus, Users, Settings, CalendarCheck, Fuel, UserPlus, X, MapPin, Sun, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import TouchCard from '@/components/leads/TouchCard';
@@ -10,15 +10,7 @@ import AddLeadDialog from '@/components/leads/AddLeadDialog';
 import LeadFilters from '@/components/leads/LeadFilters';
 import { calculateColorStatus } from '@/lib/cadenceUtils';
 import { addLead, markTouchDone } from '@/lib/leadActions';
-
-// Search across the lead's real fields, including phone/email arrays.
-function leadMatchesSearch(l, q) {
-  const query = q.toLowerCase();
-  const fields = [l.name, l.company_name, l.company, l.decision_maker, l.gatekeeper, l.address];
-  (l.phones || []).forEach(p => fields.push(p.value));
-  (l.emails || []).forEach(e => fields.push(e.value));
-  return fields.filter(Boolean).some(f => f.toLowerCase().includes(query));
-}
+import { matchesCategoryFilters, emptyFilters } from '@/lib/leadFilters';
 
 export default function Home() {
   const [leads, setLeads] = useState([]);
@@ -26,7 +18,7 @@ export default function Home() {
   const [weeklyTouches, setWeeklyTouches] = useState(0);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
-  const [filters, setFilters] = useState({ search: '', company: '', relationship_type: '', stage: '', industry: '', zipcode: '', sort: 'newest', overdueOnly: false });
+  const [filters, setFilters] = useState(emptyFilters({ overdueOnly: false }));
   const [today, setToday] = useState(moment().startOf('day'));
   const { toast } = useToast();
 
@@ -97,13 +89,8 @@ export default function Home() {
     const due = moment(l.next_touch_date).startOf('day');
     if (due.isAfter(today)) return false; // future — not yet
     if (filters.overdueOnly && !due.isBefore(today)) return false; // only past days
-    // Apply advanced filters
-    if (filters.company && l.company !== filters.company) return false;
-    if (filters.relationship_type && l.relationship_type !== filters.relationship_type) return false;
-    if (filters.stage && l.stage !== filters.stage) return false;
-    if (filters.industry && !(l.job_industry || '').toLowerCase().includes(filters.industry.toLowerCase())) return false;
-    if (filters.zipcode && !(l.zipcode || '').toLowerCase().includes(filters.zipcode.toLowerCase())) return false;
-    if (filters.search && !leadMatchesSearch(l, filters.search)) return false;
+    // Apply advanced (multi-select) filters
+    if (!matchesCategoryFilters(l, filters)) return false;
     return true;
   }).sort((a, b) => {
     if (filters.sort === 'oldest') return new Date(a.created_date) - new Date(b.created_date);
@@ -125,6 +112,26 @@ export default function Home() {
       loadData();
     } catch (error) {
       toast({ title: 'Error marking touch', description: 'Unable to update lead status.' });
+    }
+  };
+
+  const handleSetTint = async (lead, tint) => {
+    try {
+      await base44.entities.Lead.update(lead.id, { cpa_tint: tint });
+      loadData();
+    } catch (error) {
+      toast({ title: 'Error updating tint' });
+    }
+  };
+
+  const handleDeleteLead = async (lead) => {
+    if (!window.confirm(`Delete ${lead.name}? This cannot be undone.`)) return;
+    try {
+      await base44.entities.Lead.delete(lead.id);
+      toast({ title: 'Lead deleted' });
+      loadData();
+    } catch (error) {
+      toast({ title: 'Error deleting lead' });
     }
   };
 
@@ -158,6 +165,9 @@ export default function Home() {
             <h1 className="text-lg font-bold text-gray-900 tracking-tight">GASOLEADS</h1>
           </div>
           <nav className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/blitzkrieg" className="text-gray-500 flex items-center gap-1.5"><Zap className="w-4 h-4" />Blitzkrieg</Link>
+            </Button>
             <Button variant="ghost" size="sm" asChild>
               <Link to="/" className="text-gray-900 font-medium flex items-center gap-1.5"><Sun className="w-4 h-4" />Today</Link>
             </Button>
@@ -302,7 +312,7 @@ export default function Home() {
         ) : (
           <div className="space-y-2">
             {todayLeads.map(lead => (
-              <TouchCard key={lead.id} lead={lead} onMarkDone={handleMarkDone} />
+              <TouchCard key={lead.id} lead={lead} onMarkDone={handleMarkDone} onSetTint={handleSetTint} onDelete={handleDeleteLead} />
             ))}
           </div>
         )}
