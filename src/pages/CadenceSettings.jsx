@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { base44 } from '@/api/localClient';
 import { Link } from 'react-router-dom';
-import { Fuel, Users, Settings, Save, Plus, X, Sun, Map, Zap, Trash2 } from 'lucide-react';
+import { Fuel, Users, Settings, Save, Plus, X, Sun, Map, Zap, Trash2, Download, Upload, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/use-toast';
 import ChannelIcon from '@/components/leads/ChannelIcon';
 import { getDaysOff, addDayOff, removeDayOff } from '@/lib/businessDays';
+import { downloadBackup, importBackup, lastBackupLabel, isAutoBackupOn, setAutoBackup, summarize, buildBackup } from '@/lib/backup';
 import moment from 'moment';
 import { CalendarOff } from 'lucide-react';
 
@@ -23,7 +24,37 @@ export default function CadenceSettings() {
   const [addingType, setAddingType] = useState(false);
   const [daysOff, setDaysOffState] = useState([]);
   const [newDayOff, setNewDayOff] = useState({ date: '', label: '' });
+  const [lastBackup, setLastBackup] = useState(lastBackupLabel());
+  const [autoBackup, setAutoBackupState] = useState(isAutoBackupOn());
+  const fileRef = useRef(null);
   const { toast } = useToast();
+
+  const handleExport = () => {
+    const backup = downloadBackup();
+    const s = summarize(backup);
+    setLastBackup(lastBackupLabel());
+    toast({ title: 'Backup downloaded', description: `${s.leads} leads saved. Now save that file somewhere off this computer (email it to yourself or OneDrive).` });
+  };
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (fileRef.current) fileRef.current.value = ''; // allow re-selecting the same file later
+    if (!file) return;
+    if (!window.confirm('Restore from this backup? It will OVERWRITE the data currently in this browser with the backup’s contents. (On a new/empty computer this is exactly what you want.)')) return;
+    try {
+      const { summary } = await importBackup(file);
+      toast({ title: 'Backup restored', description: `${summary.leads} leads loaded. Reloading…` });
+      setTimeout(() => window.location.reload(), 900);
+    } catch (err) {
+      toast({ title: 'Couldn’t restore', description: err.message || 'That file could not be read.' });
+    }
+  };
+
+  const toggleAuto = (v) => {
+    setAutoBackup(v);
+    setAutoBackupState(v);
+    toast({ title: v ? 'Daily auto-backup on' : 'Daily auto-backup off', description: v ? 'A backup file will download once a day when you open the app. Keep those files somewhere off this computer.' : undefined });
+  };
 
   const loadData = useCallback(async () => {
     const [all, pts] = await Promise.all([
@@ -188,7 +219,43 @@ export default function CadenceSettings() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
-        <h2 className="text-2xl font-bold text-gray-900 tracking-tight mb-6">Cadence Settings</h2>
+        <h2 className="text-2xl font-bold text-gray-900 tracking-tight mb-6">Settings</h2>
+
+        {/* Backup & Restore */}
+        <div className="bg-white rounded-xl border border-gray-100 p-5 mb-8">
+          <div className="flex items-center gap-2 mb-1">
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <h3 className="font-semibold text-gray-900">Backup &amp; Restore</h3>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Your data lives only in this browser. Export a backup file and keep it somewhere off this
+            computer (email it to yourself, or OneDrive) so you never lose your pipeline — especially
+            before switching computers. On the new computer, open this app and Import that file.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <Button size="sm" onClick={handleExport} className="gap-1.5">
+              <Download className="w-4 h-4" /> Export backup
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => fileRef.current && fileRef.current.click()} className="gap-1.5">
+              <Upload className="w-4 h-4" /> Import / Restore
+            </Button>
+            <input ref={fileRef} type="file" accept="application/json,.json" onChange={handleImportFile} className="hidden" />
+            <span className="text-xs text-gray-400 ml-1">Last backup: {lastBackup}</span>
+          </div>
+
+          <div className="flex items-start gap-3 pt-3 border-t border-gray-100">
+            <Switch checked={autoBackup} onCheckedChange={toggleAuto} className="mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-gray-800">Auto-download a backup once a day</p>
+              <p className="text-xs text-gray-400">
+                Downloads a dated backup file the first time you open the app each day. Note: the file
+                goes to this computer’s Downloads — move them somewhere safe (or let OneDrive sync them),
+                or they’ll be lost if the computer is replaced.
+              </p>
+            </div>
+          </div>
+        </div>
 
         {/* Days Off */}
         <div className="bg-white rounded-xl border border-gray-100 p-5 mb-8">

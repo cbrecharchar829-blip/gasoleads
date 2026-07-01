@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { base44 } from '@/api/localClient';
 import { Link } from 'react-router-dom';
 import moment from 'moment';
-import { Plus, Users, Settings, CalendarCheck, Fuel, UserPlus, X, MapPin, Sun, Zap, Bell } from 'lucide-react';
+import { Plus, Users, Settings, CalendarCheck, Fuel, UserPlus, X, MapPin, Sun, Zap, Bell, ShieldAlert, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import TouchCard from '@/components/leads/TouchCard';
@@ -12,6 +12,7 @@ import DailyTodo from '@/components/DailyTodo';
 import { calculateColorStatus, needsShoulderTap, isFinalTouch } from '@/lib/cadenceUtils';
 import { businessDaysOverdue } from '@/lib/businessDays';
 import { addLead, markTouchDone, dismissShoulderTap, moveLeadToNurture, shouldConfirmSameDayTouch } from '@/lib/leadActions';
+import { downloadBackup, backedUpToday, lastBackupLabel, isAutoBackupOn } from '@/lib/backup';
 import { matchesCategoryFilters, emptyFilters } from '@/lib/leadFilters';
 
 export default function Home() {
@@ -22,7 +23,21 @@ export default function Home() {
   const [addOpen, setAddOpen] = useState(false);
   const [filters, setFilters] = useState(emptyFilters({ overdueOnly: false }));
   const [today, setToday] = useState(moment().startOf('day'));
+  const [backupOk, setBackupOk] = useState(backedUpToday());
   const { toast } = useToast();
+
+  // Optional: auto-download one backup per day (off unless enabled in Settings).
+  useEffect(() => {
+    if (isAutoBackupOn() && !backedUpToday()) {
+      try { downloadBackup(); setBackupOk(true); } catch { /* download blocked */ }
+    }
+  }, []);
+
+  const handleBackupNow = () => {
+    const backup = downloadBackup();
+    setBackupOk(true);
+    toast({ title: 'Backup downloaded', description: 'Save it somewhere off this computer (email it to yourself or OneDrive).' });
+  };
 
   const loadData = useCallback(async () => {
     try {
@@ -209,6 +224,18 @@ export default function Home() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+        {/* Daily backup reminder */}
+        {!backupOk && leads.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+            <span className="text-sm text-amber-900 font-medium">Back up your data</span>
+            <span className="text-xs text-amber-700">Last backup: {lastBackupLabel()} · keep a copy off this computer.</span>
+            <button onClick={handleBackupNow} className="ml-auto inline-flex items-center gap-1.5 text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-md px-2.5 py-1.5">
+              <Download className="w-3.5 h-3.5" /> Back up now
+            </button>
+          </div>
+        )}
+
         {/* Stats */}
         <div className="flex items-center gap-6 mb-8">
           <div>

@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:cadence": "node ./scripts/cadence-tests.mjs"
+    "test:cadence": "node ./scripts/cadence-tests.mjs",
+    "deploy:pages": "bash scripts/deploy-pages.sh"
   },
   "dependencies": {
     "react": "^18.3.1",
