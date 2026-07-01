@@ -183,6 +183,20 @@ export async function markTouchDone(lead, templates) {
   return updateData;
 }
 
+// True when marking a touch done should ask for confirmation first: a recurring
+// cadence that already had a touch logged TODAY. Recurring cadences schedule the
+// next touch as "interval days from now", so doing several in one day just keeps
+// resetting the same date and inflates the counter — so we confirm. (Fixed
+// cadences already self-limit via their one-touch-per-day clamp.)
+export function shouldConfirmSameDayTouch(lead, templates) {
+  const template = templates.find((t) => t.key === lead.cadence_key);
+  return !!(
+    template?.is_recurring &&
+    lead.last_touch_date &&
+    moment(lead.last_touch_date).isSame(moment(), 'day')
+  );
+}
+
 // Rule 2 actions — the user's decision on a shoulder-tapped permanent-loop lead.
 // "Keep going" just resets the 3-week inactivity clock (no stage change).
 export async function dismissShoulderTap(lead) {
@@ -195,4 +209,45 @@ export async function moveLeadToNurture(lead) {
     stage: 'Nurture',
     nurture_revisit_date: moment().add(6, 'weeks').toISOString(),
   });
+}
+
+// Restart the whole cadence from the first touch. Keeps all prior touch history
+// (and its notes) and drops a red "Cadence restarted (N)" marker into the touch
+// timeline, then reschedules touch #1 for the next business day and reactivates
+// the lead (stage -> Contacted) so it returns to the Today tab.
+export async function restartCadence(lead, templates) {
+  const template = templates.find((t) => t.key === lead.cadence_key);
+  const now = new Date().toISOString();
+  const restartIndex = (lead.restart_count || 0) + 1;
+
+  // Timeline marker (rendered as a red divider in Touch History). Stored as a
+  // TouchLog with is_restart_marker so it sorts inline by date; it is excluded
+  // from the weekly-touches count and never rendered as a real touch row.
+  await base44.entities.TouchLog.create({
+    lead_id: lead.id,
+    is_restart_marker: true,
+    restart_index: restartIndex,
+    channel: '',
+    completed_date: now,
+  });
+
+  // First touch of the new cycle: today, rolled forward off weekends/days-off.
+  const firstChannel = template ? template.channels[0] : (lead.next_touch_channel || 'Call');
+  const firstDate = shiftToBusinessDay(now);
+
+  const updateData = {
+    current_touch_index: 0,
+    cadence_start_date: firstDate,
+    cadence_completed: false,
+    cadence_template_missing: template ? false : lead.cadence_template_missing,
+    stage: 'Contacted',
+    restart_count: restartIndex,
+    next_touch_channel: firstChannel,
+    next_touch_date: firstDate,
+    color_status: calculateColorStatus(firstDate),
+    nudge_dismissed_date: now, // fresh activity — don't immediately shoulder-tap
+  };
+
+  await base44.entities.Lead.update(lead.id, updateData);
+  return updateData;
 }

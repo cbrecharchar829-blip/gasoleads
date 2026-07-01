@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { base44 } from '@/api/localClient';
 import { Link } from 'react-router-dom';
-import { Fuel, Users, Settings, Save, Plus, X, Sun, Map, Zap } from 'lucide-react';
+import { Fuel, Users, Settings, Save, Plus, X, Sun, Map, Zap, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -133,11 +133,19 @@ export default function CadenceSettings() {
     loadData();
   };
 
-  const deletePartnershipType = async (pt) => {
-    await base44.entities.PartnershipType.delete(pt.id);
-    const tmpl = templates.find(t => t.key === pt.key);
+  // Delete a custom cadence: removes both the CadenceTemplate and its matching
+  // PartnershipType (whichever exist). Built-in templates have no PartnershipType,
+  // so they aren't offered for deletion. Leads using it keep their history but
+  // lose their schedule (they show a "cadence template missing" note).
+  const deleteCadenceByKey = async (key, label) => {
+    if (!window.confirm(`Delete "${label}"? Any leads using this cadence keep their history but lose their schedule (you'll see a "cadence template missing" note on them). This can't be undone.`)) {
+      return;
+    }
+    const pt = partnershipTypes.find(p => p.key === key);
+    if (pt) await base44.entities.PartnershipType.delete(pt.id);
+    const tmpl = templates.find(t => t.key === key);
     if (tmpl) await base44.entities.CadenceTemplate.delete(tmpl.id);
-    toast({ title: 'Deleted', description: pt.label });
+    toast({ title: 'Deleted', description: label });
     loadData();
   };
 
@@ -242,7 +250,7 @@ export default function CadenceSettings() {
               {partnershipTypes.map(pt => (
                 <span key={pt.id} className="inline-flex items-center gap-1.5 px-3 py-1 bg-gray-100 rounded-full text-sm text-gray-700">
                   {pt.label} <span className="text-gray-400 text-xs">({pt.company})</span>
-                  <button onClick={() => deletePartnershipType(pt)} className="text-gray-400 hover:text-red-400 ml-1">
+                  <button onClick={() => deleteCadenceByKey(pt.key, pt.label)} className="text-gray-400 hover:text-red-400 ml-1">
                     <X className="w-3 h-3" />
                   </button>
                 </span>
@@ -334,15 +342,28 @@ export default function CadenceSettings() {
                     {!template.is_recurring && template.total_days ? ` · ${template.total_days} days` : ''}
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() => handleSave(template)}
-                  disabled={saving === template.id}
-                  className="gap-1.5"
-                >
-                  <Save className="w-4 h-4" />
-                  {saving === template.id ? 'Saving…' : 'Save'}
-                </Button>
+                <div className="flex items-center gap-2">
+                  {partnershipTypes.some(p => p.key === template.key) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => deleteCadenceByKey(template.key, template.label)}
+                      className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    onClick={() => handleSave(template)}
+                    disabled={saving === template.id}
+                    className="gap-1.5"
+                  >
+                    <Save className="w-4 h-4" />
+                    {saving === template.id ? 'Saving…' : 'Save'}
+                  </Button>
+                </div>
               </div>
 
               {template.is_recurring && (

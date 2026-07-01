@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Phone, Mail, MapPin, Users, ChevronRight, Trash2 } from 'lucide-react';
+import { Check, Phone, Mail, MapPin, Users, ChevronRight, Trash2, Flag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import StatusBadge from './StatusBadge';
 import ChannelIcon from './ChannelIcon';
@@ -13,7 +13,7 @@ const companyAccent = {
   'CaneyCloud/VAV': 'border-l-4 border-l-[#c0654a] bg-[#fdf3f0]',
 };
 
-export default function TouchCard({ lead, onMarkDone, onSetTint, onDelete, compact = false }) {
+export default function TouchCard({ lead, onMarkDone, onSetTint, onDelete, compact = false, finalTouch = false }) {
   const touchNum = (lead.current_touch_index || 0) + 1;
   const [showActions, setShowActions] = useState(false);
 
@@ -77,11 +77,12 @@ export default function TouchCard({ lead, onMarkDone, onSetTint, onDelete, compa
         <Button
           size="sm"
           variant="default"
-          className="flex-1 sm:flex-none h-10 gap-1.5 text-white bg-emerald-600 hover:bg-emerald-700"
+          className={`flex-1 sm:flex-none h-10 gap-1.5 text-white ${finalTouch ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-600 hover:bg-emerald-700'}`}
           onClick={() => onMarkDone(lead)}
+          title={finalTouch ? 'Final touch — completing this ends the cadence' : 'Mark touch done'}
         >
-          <Check className="w-4 h-4" />
-          <span className="hidden sm:inline">Done</span>
+          {finalTouch ? <Flag className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+          <span className={finalTouch ? '' : 'hidden sm:inline'}>{finalTouch ? 'Final touch' : 'Done'}</span>
         </Button>
         {primaryPhone && (
           <Button

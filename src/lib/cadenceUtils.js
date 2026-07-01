@@ -87,6 +87,17 @@ export function needsShoulderTap(lead, template) {
   return moment(lastActivity).isBefore(moment().subtract(3, 'weeks'));
 }
 
+// True when the lead's CURRENT touch is the FINAL touch of a fixed cadence — the
+// one that will complete the cadence (and move it to Nurture) on the next Mark
+// Done. Recurring cadences never have a final touch (they loop), and a permanent
+// fixed cadence restarts instead of ending, so neither qualifies. Uses >= so it
+// still reads as final if the template was later shortened below the lead's spot.
+export function isFinalTouch(lead, template) {
+  if (!lead || !template) return false;
+  if (template.is_recurring || lead.permanent_cadence || lead.cadence_completed) return false;
+  return (lead.current_touch_index || 0) + 1 >= (template.total_touches || 0);
+}
+
 // Get cadence key from lead fields.
 // NOTE: spaces are converted to underscores so multi-word custom partnership
 // types (e.g. "Referral Partner") match the key created in Settings.

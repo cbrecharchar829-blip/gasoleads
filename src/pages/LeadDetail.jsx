@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import moment from 'moment';
 import {
   ArrowLeft, Phone, Mail, Linkedin, Instagram, Briefcase, Check, Trash2,
-  ExternalLink, RefreshCw, MapPin, Copy, Pencil, Plus, Link2, X, CalendarClock, Bell
+  ExternalLink, RefreshCw, MapPin, Copy, Pencil, Plus, Link2, X, CalendarClock, Bell, RotateCcw, Flag
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
@@ -18,8 +18,8 @@ import StatusBadge from '@/components/leads/StatusBadge';
 import StageBadge from '@/components/leads/StageBadge';
 import ChannelIcon from '@/components/leads/ChannelIcon';
 import CompetitorTag from '@/components/leads/CompetitorTag';
-import { STAGES, calculateColorStatus, getCadenceKey, needsShoulderTap } from '@/lib/cadenceUtils';
-import { markTouchDone, dismissShoulderTap, moveLeadToNurture } from '@/lib/leadActions';
+import { STAGES, calculateColorStatus, getCadenceKey, needsShoulderTap, isFinalTouch } from '@/lib/cadenceUtils';
+import { markTouchDone, dismissShoulderTap, moveLeadToNurture, shouldConfirmSameDayTouch, restartCadence } from '@/lib/leadActions';
 import { shiftToBusinessDay } from '@/lib/businessDays';
 
 const CHANNEL_OPTIONS = ['Call', 'Text', 'Email', 'WhatsApp', 'In-person drop-in'];
@@ -120,6 +120,10 @@ export default function LeadDetail() {
   };
 
   const handleMarkDone = async () => {
+    if (shouldConfirmSameDayTouch(lead, templates) &&
+        !window.confirm(`You already logged a touch for ${lead.name} today. Recurring cadences are meant to be spaced out — log another touch today anyway?`)) {
+      return;
+    }
     try {
       const result = await markTouchDone(lead, templates);
       if (result?.cadence_template_missing) {
@@ -172,6 +176,19 @@ export default function LeadDetail() {
     await base44.entities.Lead.update(leadId, { permanent_cadence: newVal });
     toast({ title: newVal ? 'Cadence set to permanent' : 'Cadence set to one-time' });
     loadData();
+  };
+
+  const handleRestartCadence = async () => {
+    if (!window.confirm(`Restart ${lead.name}'s cadence from the first touch? Past touches stay as history, and the first touch will be scheduled for the next business day.`)) {
+      return;
+    }
+    try {
+      await restartCadence(lead, templates);
+      toast({ title: 'Cadence restarted', description: 'Back to touch #1 — added to Today.' });
+      loadData();
+    } catch (error) {
+      toast({ title: 'Error restarting cadence' });
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -389,7 +406,7 @@ export default function LeadDetail() {
                   </span>
                 </div>
                 <p className="text-sm text-gray-500 mt-1">
-                  {lead.next_touch_date ? moment(lead.next_touch_date).calendar() : ''}
+                  {lead.next_touch_date ? moment(lead.next_touch_date).format('ddd - MM/DD/YYYY') : ''}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -403,8 +420,8 @@ export default function LeadDetail() {
                 >
                   <CalendarClock className="w-4 h-4" /> Reschedule
                 </Button>
-                <Button onClick={handleMarkDone} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700">
-                  <Check className="w-4 h-4" /> Mark Done
+                <Button onClick={handleMarkDone} className={isFinalTouch(lead, template) ? 'gap-1.5 bg-amber-500 hover:bg-amber-600' : 'gap-1.5 bg-emerald-600 hover:bg-emerald-700'}>
+                  {isFinalTouch(lead, template) ? <><Flag className="w-4 h-4" /> Final touch</> : <><Check className="w-4 h-4" /> Mark Done</>}
                 </Button>
               </div>
             </div>
@@ -431,21 +448,36 @@ export default function LeadDetail() {
           </div>
         )}
 
-        {/* Permanent cadence toggle — only meaningful for fixed (non-recurring)
-            cadences. Recurring cadences (Partner/Client) already repeat forever,
-            so the toggle does nothing there and is hidden. */}
-        {template && !template.is_recurring && (
-          <div className="bg-white rounded-xl border border-gray-100 p-4 flex items-center justify-between">
+        {/* Cadence controls — Restart shows for every lead; the Permanent toggle
+            only for fixed (non-recurring) cadences, where it actually matters. */}
+        <div className="bg-white rounded-xl border border-gray-100 p-4 space-y-4">
+          {template && !template.is_recurring && (
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <RefreshCw className="w-4 h-4 text-gray-400" />
+                <div>
+                  <p className="text-sm font-medium text-gray-800">Permanent Cadence</p>
+                  <p className="text-xs text-gray-400">When the cadence ends, automatically restart it from the first touch</p>
+                </div>
+              </div>
+              <Switch checked={!!lead.permanent_cadence} onCheckedChange={handleTogglePermanent} />
+            </div>
+          )}
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <RefreshCw className="w-4 h-4 text-gray-400" />
+              <RotateCcw className="w-4 h-4 text-gray-400" />
               <div>
-                <p className="text-sm font-medium text-gray-800">Permanent Cadence</p>
-                <p className="text-xs text-gray-400">When the cadence ends, automatically restart it from the first touch</p>
+                <p className="text-sm font-medium text-gray-800">Restart Cadence</p>
+                <p className="text-xs text-gray-400">
+                  Start over from the first touch{lead.restart_count ? ` · restarted ${lead.restart_count}×` : ''}
+                </p>
               </div>
             </div>
-            <Switch checked={!!lead.permanent_cadence} onCheckedChange={handleTogglePermanent} />
+            <Button variant="outline" size="sm" onClick={handleRestartCadence} className="gap-1.5">
+              <RotateCcw className="w-4 h-4" /> Restart
+            </Button>
           </div>
-        )}
+        </div>
 
         {lead.cadence_completed && lead.stage === 'Nurture' && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
@@ -887,7 +919,13 @@ export default function LeadDetail() {
             <div className="space-y-2">
               {/* Completed touches */}
               {touchLogs.map(t => (
-                editTouch?.id === t.id ? (
+                t.is_restart_marker ? (
+                  <div key={t.id} className="flex items-center gap-2 my-1 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+                    <RotateCcw className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                    <span className="text-xs font-semibold text-red-700">Cadence restarted ({t.restart_index})</span>
+                    <span className="text-red-400 ml-auto text-xs">{moment(t.completed_date).format('MMM D, YYYY')}</span>
+                  </div>
+                ) : editTouch?.id === t.id ? (
                   <div key={t.id} className="flex flex-wrap items-center gap-2 text-sm bg-gray-50 rounded-lg p-2">
                     <ChannelIcon channel={t.channel} className="w-4 h-4 text-gray-500" />
                     <span className="text-gray-700">{t.channel}</span>

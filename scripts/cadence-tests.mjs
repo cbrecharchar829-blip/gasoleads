@@ -44,8 +44,8 @@ const resetClock = () => { FAKE = RealDate.parse('2026-03-02T09:00:00'); };
 register(pathToFileURL(path.resolve('scripts/alias-hook.mjs')).href);
 
 const { base44 } = await import('@/api/localClient.js');
-const { markTouchDone } = await import('@/lib/leadActions.js');
-const { needsShoulderTap } = await import('@/lib/cadenceUtils.js');
+const { markTouchDone, restartCadence } = await import('@/lib/leadActions.js');
+const { needsShoulderTap, isFinalTouch } = await import('@/lib/cadenceUtils.js');
 const moment = (await import('moment')).default;
 
 // --- tiny assert framework ---------------------------------------------------
@@ -177,6 +177,57 @@ for (let i = 1; i <= 5; i++) {
 }
 console.log('  recurring dates:', rseq.join('  '));
 ok(rStrict, 'recurring: each mark-done schedules a strictly later next_touch_date');
+
+// ============================================================================
+section('[5] RESTART CADENCE — back to touch #1, history kept, red marker added');
+resetClock();
+// Take a lead partway through, with prior touches, then restart it.
+let rc = await newFixed({ stage: 'Nurture' });
+advanceTo(rc.next_touch_date);
+await markTouchDone(rc, templates);           // 1 real touch logged
+advanceTo((await base44.entities.Lead.get(rc.id)).next_touch_date);
+await markTouchDone(await base44.entities.Lead.get(rc.id), templates); // 2 real touches
+const beforeLogs = await base44.entities.TouchLog.filter({ lead_id: rc.id }, '-completed_date', 99);
+rc = await base44.entities.Lead.get(rc.id);
+const idxBefore = rc.current_touch_index;
+
+await restartCadence(rc, templates);
+rc = await base44.entities.Lead.get(rc.id);
+const afterLogs = await base44.entities.TouchLog.filter({ lead_id: rc.id }, '-completed_date', 99);
+const realLogs = afterLogs.filter(l => !l.is_restart_marker);
+const markers = afterLogs.filter(l => l.is_restart_marker);
+
+ok(idxBefore > 0, `lead was mid-cadence before restart (index=${idxBefore})`);
+ok(rc.current_touch_index === 0, 'restart resets to touch #1 (current_touch_index = 0)');
+ok(rc.cadence_completed === false, 'restart clears cadence_completed');
+ok(rc.stage === 'Contacted', `restart reactivates the lead to Contacted (was Nurture, now ${rc.stage})`);
+ok(rc.restart_count === 1, 'restart_count increments to 1');
+ok(realLogs.length === beforeLogs.length, 'prior touch history is preserved (real touch logs unchanged)');
+ok(markers.length === 1 && markers[0].restart_index === 1, 'exactly one "Cadence restarted (1)" marker was added');
+ok(rc.next_touch_date != null && !moment(rc.next_touch_date).isBefore(moment(FAKE).startOf('day')), 'first touch is scheduled today or later');
+const dow = moment(rc.next_touch_date).day();
+ok(dow !== 0 && dow !== 6, 'first touch lands on a business day (weekend skipped)');
+
+// second restart -> marker (2)
+await restartCadence(await base44.entities.Lead.get(rc.id), templates);
+rc = await base44.entities.Lead.get(rc.id);
+const markers2 = (await base44.entities.TouchLog.filter({ lead_id: rc.id }, '-completed_date', 99)).filter(l => l.is_restart_marker);
+ok(rc.restart_count === 2, 'second restart increments restart_count to 2');
+ok(markers2.some(m => m.restart_index === 2), 'second restart adds a "Cadence restarted (2)" marker');
+
+// ============================================================================
+section('[6] FINAL TOUCH detection (button relabels to "Final touch")');
+const total = ap.total_touches; // fixed cadence length
+ok(isFinalTouch({ current_touch_index: total - 1, cadence_key: 'adp_prospect' }, ap) === true,
+  'last touch of a fixed cadence IS the final touch');
+ok(isFinalTouch({ current_touch_index: total - 2, cadence_key: 'adp_prospect' }, ap) === false,
+  'the touch before last is NOT the final touch');
+ok(isFinalTouch({ current_touch_index: total - 1, cadence_key: 'adp_prospect', permanent_cadence: true }, ap) === false,
+  'a permanent (looping) fixed cadence has no final touch');
+ok(isFinalTouch({ current_touch_index: 99, cadence_key: 'adp_partner' }, partner) === false,
+  'recurring cadences never have a final touch');
+ok(isFinalTouch({ current_touch_index: total, cadence_key: 'adp_prospect' }, ap) === true,
+  'reads as final even if the template was shortened below the lead’s index');
 
 // --- summary -----------------------------------------------------------------
 console.log(`\n==== ${pass} passed, ${fail} failed ====`);

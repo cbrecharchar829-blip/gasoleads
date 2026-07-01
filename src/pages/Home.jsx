@@ -8,15 +8,16 @@ import { useToast } from '@/components/ui/use-toast';
 import TouchCard from '@/components/leads/TouchCard';
 import AddLeadDialog from '@/components/leads/AddLeadDialog';
 import LeadFilters from '@/components/leads/LeadFilters';
-import { calculateColorStatus, needsShoulderTap } from '@/lib/cadenceUtils';
+import DailyTodo from '@/components/DailyTodo';
+import { calculateColorStatus, needsShoulderTap, isFinalTouch } from '@/lib/cadenceUtils';
 import { businessDaysOverdue } from '@/lib/businessDays';
-import { addLead, markTouchDone, dismissShoulderTap, moveLeadToNurture } from '@/lib/leadActions';
+import { addLead, markTouchDone, dismissShoulderTap, moveLeadToNurture, shouldConfirmSameDayTouch } from '@/lib/leadActions';
 import { matchesCategoryFilters, emptyFilters } from '@/lib/leadFilters';
 
 export default function Home() {
   const [leads, setLeads] = useState([]);
   const [templates, setTemplates] = useState([]);
-  const [weeklyTouches, setWeeklyTouches] = useState(0);
+  const [weekTouchLogs, setWeekTouchLogs] = useState([]); // this week's real touches (no restart markers)
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [filters, setFilters] = useState(emptyFilters({ overdueOnly: false }));
@@ -32,7 +33,7 @@ export default function Home() {
         base44.entities.TouchLog.filter({ completed_date: { $gte: weekStart } }, '-completed_date', 500),
       ]);
       setTemplates(allTemplates);
-      setWeeklyTouches(allTouches.length);
+      setWeekTouchLogs(allTouches.filter(t => !t.is_restart_marker));
       const updated = allLeads.map(l => ({
         ...l,
         color_status: calculateColorStatus(l.next_touch_date),
@@ -112,7 +113,19 @@ export default function Home() {
   const overdueCount = todayLeads.filter(l => businessDaysOverdue(l.next_touch_date) > 0).length;
   const dueCount = todayLeads.filter(l => moment(l.next_touch_date).startOf('day').isSame(today)).length;
 
+  // Touch counters (derived so they recompute at midnight when `today` changes).
+  const weeklyTouches = weekTouchLogs.length;
+  const todaysTouchLogs = weekTouchLogs.filter(t => moment(t.completed_date).isSameOrAfter(today));
+  const todayTouchCount = todaysTouchLogs.length;
+  const touchedTodayLeads = [...new Set(todaysTouchLogs.map(t => t.lead_id))]
+    .map(id => leads.find(l => l.id === id))
+    .filter(Boolean);
+
   const handleMarkDone = async (lead) => {
+    if (shouldConfirmSameDayTouch(lead, templates) &&
+        !window.confirm(`You already logged a touch for ${lead.name} today. Recurring cadences are meant to be spaced out — log another touch today anyway?`)) {
+      return;
+    }
     try {
       const result = await markTouchDone(lead, templates);
       if (result?.cadence_template_missing) {
@@ -168,7 +181,7 @@ export default function Home() {
     <div className="min-h-screen bg-gray-50/50">
       {/* Header */}
       <header className="bg-white border-b border-gray-100">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-amber-600 flex items-center justify-center">
               <Fuel className="w-5 h-5 text-white" />
@@ -195,7 +208,7 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         {/* Stats */}
         <div className="flex items-center gap-6 mb-8">
           <div>
@@ -238,9 +251,15 @@ export default function Home() {
                   <span className={stagePopover?.label === label ? 'text-gray-300' : 'text-gray-500'}>{label}</span>
                 </button>
               ))}
-              <div className="ml-auto flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 rounded-lg">
-                <span className="font-semibold text-emerald-700">{weeklyTouches}</span>
-                <span className="text-emerald-600">touches this week</span>
+              <div className="ml-auto flex items-center gap-2">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-sky-50 rounded-lg">
+                  <span className="font-semibold text-sky-700">{todayTouchCount}</span>
+                  <span className="text-sky-600">today</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 rounded-lg">
+                  <span className="font-semibold text-emerald-700">{weeklyTouches}</span>
+                  <span className="text-emerald-600">this week</span>
+                </div>
               </div>
             </div>
           );
@@ -293,6 +312,25 @@ export default function Home() {
           );
         })()}
 
+        {/* Touched Today sneak peek — who you've logged a touch on today */}
+        {touchedTodayLeads.length > 0 && (
+          <div className="mb-4 p-3 bg-white rounded-xl border border-gray-100 flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 text-xs text-gray-500 mr-1">
+              <CalendarCheck className="w-3.5 h-3.5" />
+              <span className="font-medium">Touched today</span>
+              <span className="text-gray-400">({touchedTodayLeads.length})</span>
+            </div>
+            {touchedTodayLeads.map(l => (
+              <Link key={l.id} to={`/leads/${l.id}`}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 rounded-lg text-xs font-medium text-emerald-800 transition-colors">
+                <span className={`w-1.5 h-1.5 rounded-full ${l.company === 'ADP' ? 'bg-red-400' : 'bg-amber-500'}`} />
+                {l.name}
+                {l.company_name && <span className="text-emerald-500 font-normal">· {l.company_name}</span>}
+              </Link>
+            ))}
+          </div>
+        )}
+
         {/* Shoulder tap — permanent-loop leads idle 3+ weeks, needing a decision */}
         {shoulderTapLeads.length > 0 && (
           <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
@@ -324,6 +362,9 @@ export default function Home() {
           </div>
         )}
 
+        {/* Touch queue + daily to-do side by side */}
+        <div className="flex flex-col lg:flex-row gap-6 items-start">
+        <div className="flex-1 min-w-0 w-full">
         {/* Overdue / All toggle + Filters */}
         <div className="mb-4 flex items-center gap-2 flex-wrap">
           <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
@@ -354,10 +395,16 @@ export default function Home() {
         ) : (
           <div className="space-y-2">
             {todayLeads.map(lead => (
-              <TouchCard key={lead.id} lead={lead} onMarkDone={handleMarkDone} onSetTint={handleSetTint} onDelete={handleDeleteLead} />
+              <TouchCard key={lead.id} lead={lead} onMarkDone={handleMarkDone} onSetTint={handleSetTint} onDelete={handleDeleteLead}
+                finalTouch={isFinalTouch(lead, templates.find(t => t.key === lead.cadence_key))} />
             ))}
           </div>
         )}
+        </div>
+        <aside className="w-full lg:w-72 shrink-0 lg:sticky lg:top-6">
+          <DailyTodo />
+        </aside>
+        </div>
       </main>
 
       <AddLeadDialog open={addOpen} onOpenChange={setAddOpen} onSave={handleAddLead} />
