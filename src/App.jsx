@@ -1,4 +1,6 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+// HashRouter (URLs like /#/leads/123) works on GitHub Pages without any server
+// rewrite rules, so deep links and refreshes never 404 on static hosting.
+import { HashRouter, Routes, Route } from "react-router-dom";
 import Home from "@/pages/Home";
 import Blitzkrieg from "@/pages/Blitzkrieg";
 import Leads from "@/pages/Leads";
@@ -9,7 +11,7 @@ import { Toaster } from "@/components/ui/toaster";
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/blitzkrieg" element={<Blitzkrieg />} />
@@ -19,6 +21,6 @@ export default function App() {
         <Route path="/settings" element={<CadenceSettings />} />
       </Routes>
       <Toaster />
-    </BrowserRouter>
+    </HashRouter>
   );
 }
