@@ -7,7 +7,8 @@ Leaflet. This file orients a fresh Claude session — read it first.
 ## Run / test / deploy
 - **Dev:** `npm run dev` → http://localhost:5173
 - **Build:** `npm run build`
-- **Cadence tests:** `npm run test:cadence` (33 checks over a simulated clock)
+- **Cadence tests:** `npm run test:cadence` (33 checks over a simulated clock).
+  These must **stay green** — run before/after cadence changes; add checks for new rules.
 - **Publish updates:** `npm run deploy:pages` — builds and force-pushes `dist/` to
   the `gh-pages` branch. Live ~1 min later. Always run this after a change the
   user wants live.
@@ -69,3 +70,19 @@ Leaflet. This file orients a fresh Claude session — read it first.
   must run themselves (interactive logins etc.), suggest the `! <command>` prompt.
 - After code changes they want live: run `npm run deploy:pages` and tell them to
   refresh the GitHub Pages link.
+
+## Workflow (follow this every change)
+1. **Plan first** in plain English and **wait for approval** before building.
+2. Build + verify (keep `test:cadence` green).
+3. **Checkpoint commit after each win** — one focused commit per completed change,
+   don't batch unrelated work.
+
+## Roadmap (planned work, in order)
+- **Wave 1a:** remove VAV / CaneyCloud company everywhere; add note **edit/delete**.
+- **Wave 1b:** change the business-days engine to **gap-counting across weekends**
+  (its own separate commit, isolated from 1a).
+- **Wave 2:** show **product on the lead card**; add a **PIC field** for partners;
+  a **mini touch-timeline**; **FEIN + website** fields in the detail view.
+- **Wave 3:** on **Restart Cadence**, apply any **relationship-type change + cadence
+  edits**; add **list sorting**.
+- **Parked (later):** Excel export; map bubble tints; CPA-tab features.
