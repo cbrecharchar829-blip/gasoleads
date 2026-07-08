@@ -39,7 +39,6 @@ export function leadMatchesSearch(l, q) {
 
 // True if the lead passes ALL active category filters (and the search box).
 export function matchesCategoryFilters(l, filters) {
-  const company = arr(filters.company);
   const relationship = arr(filters.relationship_type);
   const stage = arr(filters.stage);
   const industry = arr(filters.industry);
@@ -47,7 +46,6 @@ export function matchesCategoryFilters(l, filters) {
   const product = arr(filters.product);
   const competitor = arr(filters.competitor);
 
-  if (company.length && !anyEquals(company, l.company)) return false;
   if (relationship.length && !anyEquals(relationship, l.relationship_type)) return false;
   if (stage.length && !anyEquals(stage, l.stage)) return false;
   if (industry.length && !anyIncludes(industry, l.job_industry)) return false;
@@ -59,7 +57,7 @@ export function matchesCategoryFilters(l, filters) {
 }
 
 // The category keys, for counting how many filters are active.
-export const FILTER_CATEGORIES = ['company', 'relationship_type', 'stage', 'industry', 'zipcode', 'product', 'competitor'];
+export const FILTER_CATEGORIES = ['relationship_type', 'stage', 'industry', 'zipcode', 'product', 'competitor'];
 
 export function activeCategoryCount(filters) {
   return FILTER_CATEGORIES.filter(k => arr(filters[k]).length > 0).length;
@@ -67,5 +65,5 @@ export function activeCategoryCount(filters) {
 
 // A fresh, fully-empty set of category filters (used by Clear all / initial state).
 export function emptyFilters(extra = {}) {
-  return { search: '', company: [], relationship_type: [], stage: [], industry: [], zipcode: [], product: [], competitor: [], sort: 'newest', ...extra };
+  return { search: '', relationship_type: [], stage: [], industry: [], zipcode: [], product: [], competitor: [], sort: 'newest', ...extra };
 }

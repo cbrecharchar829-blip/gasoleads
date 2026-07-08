@@ -155,6 +155,63 @@ function seedOnce() {
 
 seedOnce();
 
+// One-time migration: retire the CaneyCloud/VAV company. The prospect/partner
+// VAV templates are dropped (ADP already has equivalents); the two *client*
+// cadences are RE-KEYED to adp_client_new / adp_client_established so client
+// leads keep a working schedule. Any leads on the VAV company or a VAV cadence
+// key are flipped to ADP, and custom VAV partnership types are removed. Guarded
+// by a flag so it runs exactly once per browser.
+function migrateAwayFromVav() {
+  if (localStorage.getItem(PREFIX + 'vav_purged')) return;
+
+  const KEY_MAP = {
+    caneycloud_prospect: 'adp_prospect',
+    caneycloud_partner: 'adp_partner',
+    caneycloud_client_new: 'adp_client_new',
+    caneycloud_client_established: 'adp_client_established',
+  };
+  const CLIENT_LABEL = {
+    adp_client_new: 'ADP – Client (New)',
+    adp_client_established: 'ADP – Client (Established)',
+  };
+
+  // Cadence templates: re-key the two client cadences (unless an adp_client_*
+  // twin already exists), drop every other caneycloud_* template.
+  const templates = read('CadenceTemplate');
+  const existingKeys = new Set(templates.map((t) => t.key));
+  const keptTemplates = [];
+  for (const t of templates) {
+    if (!t.key || !t.key.startsWith('caneycloud_')) { keptTemplates.push(t); continue; }
+    if (t.key === 'caneycloud_client_new' || t.key === 'caneycloud_client_established') {
+      const newKey = KEY_MAP[t.key];
+      if (existingKeys.has(newKey)) continue; // twin already present — drop the VAV copy
+      keptTemplates.push({ ...t, key: newKey, company: 'ADP', label: CLIENT_LABEL[newKey] });
+    }
+    // any other caneycloud_* template (prospect, partner, custom) is dropped
+  }
+  if (keptTemplates.length !== templates.length) write('CadenceTemplate', keptTemplates);
+
+  // Leads: flip VAV company to ADP and re-map any VAV cadence keys we know about.
+  const leads = read('Lead');
+  let leadsChanged = false;
+  const nextLeads = leads.map((l) => {
+    let next = l;
+    if (l.company === 'CaneyCloud/VAV') { next = { ...next, company: 'ADP' }; leadsChanged = true; }
+    if (l.cadence_key && KEY_MAP[l.cadence_key]) { next = { ...next, cadence_key: KEY_MAP[l.cadence_key] }; leadsChanged = true; }
+    return next;
+  });
+  if (leadsChanged) write('Lead', nextLeads);
+
+  // Custom partnership types created under the VAV company are removed.
+  const pts = read('PartnershipType');
+  const keptPts = pts.filter((p) => p.company !== 'CaneyCloud/VAV');
+  if (keptPts.length !== pts.length) write('PartnershipType', keptPts);
+
+  localStorage.setItem(PREFIX + 'vav_purged', '1');
+}
+
+migrateAwayFromVav();
+
 export const base44 = {
   entities: ENTITY_NAMES.reduce((acc, name) => {
     acc[name] = makeEntity(name);

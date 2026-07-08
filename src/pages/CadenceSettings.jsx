@@ -13,14 +13,12 @@ import { downloadBackup, importBackup, lastBackupLabel, isAutoBackupOn, setAutoB
 import moment from 'moment';
 import { CalendarOff } from 'lucide-react';
 
-const COMPANIES = ['ADP', 'CaneyCloud/VAV'];
-
 export default function CadenceSettings() {
   const [templates, setTemplates] = useState([]);
   const [partnershipTypes, setPartnershipTypes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(null);
-  const [newType, setNewType] = useState({ label: '', company: 'ADP', is_recurring: false, interval_days: 7, channels: ['Call'] });
+  const [newType, setNewType] = useState({ label: '', is_recurring: false, interval_days: 7, channels: ['Call'] });
   const [addingType, setAddingType] = useState(false);
   const [daysOff, setDaysOffState] = useState([]);
   const [newDayOff, setNewDayOff] = useState({ date: '', label: '' });
@@ -144,12 +142,12 @@ export default function CadenceSettings() {
   const handleCreatePartnershipType = async () => {
     if (!newType.label.trim()) return;
     setAddingType(true);
-    const key = `${newType.company === 'ADP' ? 'adp' : 'caneycloud'}_${newType.label.toLowerCase().replace(/\s+/g, '_')}`;
-    await base44.entities.PartnershipType.create({ label: newType.label.trim(), key, company: newType.company });
+    const key = `adp_${newType.label.toLowerCase().replace(/\s+/g, '_')}`;
+    await base44.entities.PartnershipType.create({ label: newType.label.trim(), key, company: 'ADP' });
     await base44.entities.CadenceTemplate.create({
       key,
-      label: `${newType.company} – ${newType.label.trim()}`,
-      company: newType.company,
+      label: `ADP – ${newType.label.trim()}`,
+      company: 'ADP',
       relationship_type: newType.label.trim(),
       is_recurring: newType.is_recurring,
       recurring_interval_days: newType.is_recurring ? newType.interval_days : null,
@@ -159,7 +157,7 @@ export default function CadenceSettings() {
       touch_days: newType.is_recurring ? [] : newType.channels.map((_, i) => i),
     });
     toast({ title: 'Partnership type created', description: newType.label });
-    setNewType({ label: '', company: 'ADP', is_recurring: false, interval_days: 7, channels: ['Call'] });
+    setNewType({ label: '', is_recurring: false, interval_days: 7, channels: ['Call'] });
     setAddingType(false);
     loadData();
   };
@@ -325,26 +323,14 @@ export default function CadenceSettings() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <div>
-              <Label className="text-xs text-gray-500">Type Name</Label>
-              <Input
-                value={newType.label}
-                onChange={e => setNewType(p => ({ ...p, label: e.target.value }))}
-                placeholder="e.g. Vendor, Referral…"
-                className="mt-1"
-              />
-            </div>
-            <div>
-              <Label className="text-xs text-gray-500">Company</Label>
-              <select
-                value={newType.company}
-                onChange={e => setNewType(p => ({ ...p, company: e.target.value }))}
-                className="mt-1 w-full text-sm border border-gray-200 rounded-md px-2 py-2 bg-white"
-              >
-                {COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
+          <div className="mb-3">
+            <Label className="text-xs text-gray-500">Type Name</Label>
+            <Input
+              value={newType.label}
+              onChange={e => setNewType(p => ({ ...p, label: e.target.value }))}
+              placeholder="e.g. Vendor, Referral…"
+              className="mt-1"
+            />
           </div>
           <div className="flex items-center gap-3 mb-3">
             <Switch

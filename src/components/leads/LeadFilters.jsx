@@ -6,7 +6,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { STAGES } from '@/lib/cadenceUtils';
 import { activeCategoryCount, emptyFilters } from '@/lib/leadFilters';
 
-const COMPANIES = ['ADP', 'CaneyCloud/VAV'];
 const RELATIONSHIP_TYPES = ['Prospect', 'Partner', 'Client'];
 
 // Toggle-chip group for fixed-option categories (multi-select, OR within).
@@ -173,8 +172,7 @@ export default function LeadFilters({ filters, onChange, leads = [] }) {
 
           <p className="text-[11px] text-gray-400 -mb-1">Pick multiple in any category — matches use OR within a category, AND across categories.</p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <ChipGroup label="Company" options={COMPANIES} selected={filters.company} onToggle={v => toggle('company', v)} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <ChipGroup label="Relationship" options={RELATIONSHIP_TYPES} selected={filters.relationship_type} onToggle={v => toggle('relationship_type', v)} />
             <ChipGroup label="Stage" options={STAGES} selected={filters.stage} onToggle={v => toggle('stage', v)} />
           </div>

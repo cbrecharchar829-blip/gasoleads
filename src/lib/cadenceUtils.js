@@ -102,15 +102,16 @@ export function isFinalTouch(lead, template) {
 // NOTE: spaces are converted to underscores so multi-word custom partnership
 // types (e.g. "Referral Partner") match the key created in Settings.
 export function getCadenceKey(company, relationshipType, clientStatus) {
-  const companyKey = company === 'ADP' ? 'adp' : 'caneycloud';
+  // Single-company app (ADP). The `company` arg is kept for call-site
+  // compatibility but no longer changes the key prefix.
   const slug = (s) => (s || '').toLowerCase().replace(/\s+/g, '_');
 
   if (relationshipType === 'Client') {
     const status = slug(clientStatus || 'New');
-    return `${companyKey}_client_${status}`;
+    return `adp_client_${status}`;
   }
 
-  return `${companyKey}_${slug(relationshipType)}`;
+  return `adp_${slug(relationshipType)}`;
 }
 
 // Shared scheduling brain. Computes the scheduling fields for a lead whose NEXT
@@ -188,23 +189,12 @@ export const DEFAULT_CADENCE_TEMPLATES = [
     no_repeat_channel: false,
   },
   {
-    key: 'caneycloud_prospect',
-    label: 'CaneyCloud/VAV – Prospect',
-    company: 'CaneyCloud/VAV',
-    relationship_type: 'Prospect',
-    client_status: '',
-    is_recurring: false,
-    total_touches: 4,
-    total_days: 10,
-    recurring_interval_days: 0,
-    channels: ['WhatsApp', 'Call', 'WhatsApp', 'Email'],
-    touch_days: [0, 3, 6, 10],
-    no_repeat_channel: false,
-  },
-  {
-    key: 'caneycloud_client_new',
-    label: 'CaneyCloud/VAV – Client (New)',
-    company: 'CaneyCloud/VAV',
+    // Client cadences (formerly the CaneyCloud/VAV client templates, re-keyed to
+    // ADP so ADP "Client" leads get a working schedule). WhatsApp is retained as
+    // a legit contact channel here.
+    key: 'adp_client_new',
+    label: 'ADP – Client (New)',
+    company: 'ADP',
     relationship_type: 'Client',
     client_status: 'New',
     is_recurring: true,
@@ -216,29 +206,15 @@ export const DEFAULT_CADENCE_TEMPLATES = [
     no_repeat_channel: false,
   },
   {
-    key: 'caneycloud_client_established',
-    label: 'CaneyCloud/VAV – Client (Established)',
-    company: 'CaneyCloud/VAV',
+    key: 'adp_client_established',
+    label: 'ADP – Client (Established)',
+    company: 'ADP',
     relationship_type: 'Client',
     client_status: 'Established',
     is_recurring: true,
     total_touches: 3,
     total_days: 0,
     recurring_interval_days: 28,
-    channels: ['WhatsApp', 'Call', 'Email'],
-    touch_days: [],
-    no_repeat_channel: false,
-  },
-  {
-    key: 'caneycloud_partner',
-    label: 'CaneyCloud/VAV – Partner',
-    company: 'CaneyCloud/VAV',
-    relationship_type: 'Partner',
-    client_status: '',
-    is_recurring: true,
-    total_touches: 3,
-    total_days: 0,
-    recurring_interval_days: 14,
     channels: ['WhatsApp', 'Call', 'Email'],
     touch_days: [],
     no_repeat_channel: false,

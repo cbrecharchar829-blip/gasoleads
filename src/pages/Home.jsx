@@ -305,7 +305,7 @@ export default function Home() {
               {stagePopover.leads.map(l => (
                 <Link key={l.id} to={`/leads/${l.id}`} onClick={() => setStagePopover(null)}
                   className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors">
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${l.company === 'ADP' ? 'bg-red-400' : 'bg-amber-500'}`} />
+                  <span className={`w-2 h-2 rounded-full shrink-0 bg-red-400`} />
                   <div className="flex-1 min-w-0">
                     <span className="text-sm font-medium text-gray-900 truncate block">{l.company_name || l.name}</span>
                     {l.company_name && <span className="text-xs text-gray-400 truncate block">{l.name}</span>}
@@ -330,7 +330,7 @@ export default function Home() {
               {addedToday.map(l => (
                 <Link key={l.id} to={`/leads/${l.id}`}
                   className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-50 hover:bg-gray-100 rounded-lg text-xs font-medium text-gray-700 transition-colors">
-                  <span className={`w-1.5 h-1.5 rounded-full ${l.company === 'ADP' ? 'bg-red-400' : 'bg-amber-500'}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full bg-red-400`} />
                   {l.name}
                   {l.company_name && <span className="text-gray-400 font-normal">· {l.company_name}</span>}
                 </Link>
@@ -350,7 +350,7 @@ export default function Home() {
             {touchedTodayLeads.map(l => (
               <Link key={l.id} to={`/leads/${l.id}`}
                 className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 rounded-lg text-xs font-medium text-emerald-800 transition-colors">
-                <span className={`w-1.5 h-1.5 rounded-full ${l.company === 'ADP' ? 'bg-red-400' : 'bg-amber-500'}`} />
+                <span className={`w-1.5 h-1.5 rounded-full bg-red-400`} />
                 {l.name}
                 {l.company_name && <span className="text-emerald-500 font-normal">· {l.company_name}</span>}
               </Link>
@@ -371,7 +371,7 @@ export default function Home() {
                 const last = l.last_touch_date || l.cadence_start_date;
                 return (
                   <div key={l.id} className="flex items-center gap-3 px-4 py-3">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${l.company === 'ADP' ? 'bg-red-400' : 'bg-amber-500'}`} />
+                    <span className={`w-2 h-2 rounded-full shrink-0 bg-red-400`} />
                     <Link to={`/leads/${l.id}`} className="flex-1 min-w-0 hover:underline">
                       <span className="text-sm font-medium text-gray-900 truncate block">{l.company_name || l.name}</span>
                       <span className="text-xs text-gray-500">

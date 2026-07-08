@@ -21,7 +21,6 @@ import CompetitorTag from '@/components/leads/CompetitorTag';
 
 const companyAccent = {
   'ADP': 'border-l-4 border-l-red-500 bg-white',
-  'CaneyCloud/VAV': 'border-l-4 border-l-[#c0654a] bg-[#fdf3f0]',
 };
 
 export default function Leads() {
@@ -262,7 +261,7 @@ export default function Leads() {
                   )}
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-500 mb-0.5">
                     <span>{lead.company} · {lead.relationship_type}{lead.relationship_type === 'Client' && lead.client_status ? ` (${lead.client_status})` : ''}</span>
-                    {lead.count && <span>· {lead.company === 'ADP' ? 'Employees' : 'Rooms'}: {lead.count}</span>}
+                    {lead.count && <span>· Employees: {lead.count}</span>}
                     {lead.next_touch_channel && (
                       <span className="inline-flex items-center gap-1">
                         · <ChannelIcon channel={lead.next_touch_channel} className="w-3 h-3" />

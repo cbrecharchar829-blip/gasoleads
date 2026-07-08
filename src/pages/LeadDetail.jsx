@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import StatusBadge from '@/components/leads/StatusBadge';
@@ -40,6 +39,7 @@ export default function LeadDetail() {
   const [editForm, setEditForm] = useState({});
   const [editTouch, setEditTouch] = useState(null);   // { id, when, answered }
   const [pairingNoteId, setPairingNoteId] = useState(null);
+  const [editNote, setEditNote] = useState(null);        // { id, content }
   const [mtgForm, setMtgForm] = useState({ date: '', content: '' });
   const [editMtg, setEditMtg] = useState(null);        // { id, date, content }
   const [addingTouch, setAddingTouch] = useState(false);
@@ -272,6 +272,24 @@ export default function LeadDetail() {
 
   const unpairNote = async (noteId) => {
     await base44.entities.Note.update(noteId, { touch_id: null });
+    loadData();
+  };
+
+  // Edit / delete a regular note. Editing only rewrites `content`, so the note's
+  // pinned flag and touch_id pairing are left intact. Deleting a paired note just
+  // removes the note — the touch itself is untouched and becomes available to pair
+  // with a different note again.
+  const saveNoteEdit = async () => {
+    if (!editNote.content.trim()) return;
+    await base44.entities.Note.update(editNote.id, { content: editNote.content.trim() });
+    setEditNote(null);
+    toast({ title: 'Note updated' });
+    loadData();
+  };
+
+  const deleteNote = async (n) => {
+    await base44.entities.Note.delete(n.id);
+    toast({ title: 'Note deleted' });
     loadData();
   };
 
@@ -516,21 +534,9 @@ export default function LeadDetail() {
                 </div>
               </div>
               <div className="border-t border-gray-100 pt-1" />
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500">Contact Name</label>
-                  <Input value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500">Company</label>
-                  <Select value={editForm.company} onValueChange={v => setEditForm(p => ({ ...p, company: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ADP">ADP</SelectItem>
-                      <SelectItem value="CaneyCloud/VAV">CaneyCloud/VAV</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div>
+                <label className="text-xs text-gray-500">Contact Name</label>
+                <Input value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} />
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-2">Phone Numbers</label>
@@ -597,7 +603,7 @@ export default function LeadDetail() {
                 <Input value={editForm.maps_url} onChange={e => setEditForm(p => ({ ...p, maps_url: e.target.value }))} placeholder="https://maps.google.com/..." />
               </div>
               <div>
-                <label className="text-xs text-gray-500">{lead.company === 'ADP' ? 'Number of Employees' : 'Number of Rooms'}</label>
+                <label className="text-xs text-gray-500">Number of Employees</label>
                 <Input type="number" value={editForm.count} onChange={e => setEditForm(p => ({ ...p, count: e.target.value ? parseInt(e.target.value) : '' }))} placeholder="e.g. 50" />
               </div>
               <div>
@@ -691,7 +697,7 @@ export default function LeadDetail() {
               {lead.count && (
                 <div className="flex items-center gap-2 text-gray-600 col-span-2">
                   <Briefcase className="w-4 h-4 text-gray-400" />
-                  <span>{lead.company === 'ADP' ? 'Employees' : 'Rooms'}: {lead.count}</span>
+                  <span>Employees: {lead.count}</span>
                 </div>
               )}
               {lead.roll_call != null && lead.roll_call !== '' && (
@@ -772,41 +778,65 @@ export default function LeadDetail() {
                 const paired = note.touch_id ? touchById[note.touch_id] : null;
                 return (
                   <div key={note.id} className={`border-l-2 pl-3 ${note.pinned ? 'border-amber-300' : 'border-gray-200'}`}>
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{note.content}</p>
-                    <div className="flex items-center flex-wrap gap-2 mt-1">
-                      <span className="text-xs text-gray-400">{moment(note.created_date).format('MMM D, YYYY h:mm A')}</span>
-                      {note.pinned && <span className="text-[11px] text-amber-600">📌 pinned</span>}
-                      {paired ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">
-                          Touch #{paired.touch_index + 1} · {moment(paired.completed_date).format('MMM D')}
-                          <button onClick={() => unpairNote(note.id)} className="hover:text-emerald-800" title="Unpair">
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => setPairingNoteId(pairingNoteId === note.id ? null : note.id)}
-                          className="inline-flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-700"
-                        >
-                          <Link2 className="w-3 h-3" /> Pair
-                        </button>
-                      )}
-                    </div>
-                    {pairingNoteId === note.id && (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {pairableTouches.length === 0 ? (
-                          <span className="text-[11px] text-gray-400">No unpaired touches available.</span>
-                        ) : pairableTouches.map(t => (
-                          <button
-                            key={t.id}
-                            onClick={() => pairNote(note.id, t.id)}
-                            className="inline-flex items-center gap-1 text-[11px] border border-gray-200 rounded-md px-2 py-1 hover:bg-gray-50"
-                          >
-                            <ChannelIcon channel={t.channel} className="w-3 h-3 text-gray-400" />
-                            Touch #{t.touch_index + 1} · {moment(t.completed_date).format('MMM D')}
-                          </button>
-                        ))}
+                    {editNote?.id === note.id ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={editNote.content}
+                          onChange={e => setEditNote(p => ({ ...p, content: e.target.value }))}
+                          className="min-h-[60px] resize-none"
+                        />
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={saveNoteEdit} disabled={!editNote.content.trim()}>Save</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditNote(null)}>Cancel</Button>
+                        </div>
                       </div>
+                    ) : (
+                      <>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{note.content}</p>
+                        <div className="flex items-center flex-wrap gap-2 mt-1">
+                          <span className="text-xs text-gray-400">{moment(note.created_date).format('MMM D, YYYY h:mm A')}</span>
+                          {note.pinned && <span className="text-[11px] text-amber-600">📌 pinned</span>}
+                          {paired ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">
+                              Touch #{paired.touch_index + 1} · {moment(paired.completed_date).format('MMM D')}
+                              <button onClick={() => unpairNote(note.id)} className="hover:text-emerald-800" title="Unpair">
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => setPairingNoteId(pairingNoteId === note.id ? null : note.id)}
+                              className="inline-flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-700"
+                            >
+                              <Link2 className="w-3 h-3" /> Pair
+                            </button>
+                          )}
+                          <div className="ml-auto flex items-center gap-2">
+                            <button onClick={() => setEditNote({ id: note.id, content: note.content })} className="text-gray-300 hover:text-gray-700" title="Edit note">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => deleteNote(note)} className="text-gray-300 hover:text-red-500" title="Delete note">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        {pairingNoteId === note.id && (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {pairableTouches.length === 0 ? (
+                              <span className="text-[11px] text-gray-400">No unpaired touches available.</span>
+                            ) : pairableTouches.map(t => (
+                              <button
+                                key={t.id}
+                                onClick={() => pairNote(note.id, t.id)}
+                                className="inline-flex items-center gap-1 text-[11px] border border-gray-200 rounded-md px-2 py-1 hover:bg-gray-50"
+                              >
+                                <ChannelIcon channel={t.channel} className="w-3 h-3 text-gray-400" />
+                                Touch #{t.touch_index + 1} · {moment(t.completed_date).format('MMM D')}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 );

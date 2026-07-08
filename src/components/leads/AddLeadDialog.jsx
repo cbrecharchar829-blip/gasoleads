@@ -99,21 +99,9 @@ export default function AddLeadDialog({ open, onOpenChange, onSave }) {
              </div>
            </div>
            <div className="border-t border-gray-100 pt-2" />
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-             <div>
-               <Label>Primary Contact Name *</Label>
-               <Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="Full name" className="h-10" />
-             </div>
-             <div>
-               <Label>Company</Label>
-               <Select value={form.company} onValueChange={v => set('company', v)}>
-                 <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
-                 <SelectContent>
-                   <SelectItem value="ADP">ADP</SelectItem>
-                   <SelectItem value="CaneyCloud/VAV">CaneyCloud/VAV</SelectItem>
-                 </SelectContent>
-               </Select>
-             </div>
+           <div>
+             <Label>Primary Contact Name *</Label>
+             <Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="Full name" className="h-10" />
            </div>
            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
              <div>
@@ -193,7 +181,7 @@ export default function AddLeadDialog({ open, onOpenChange, onSave }) {
             </div>
           </div>
           <div>
-            <Label>{form.company === 'ADP' ? 'Number of Employees' : 'Number of Rooms'}</Label>
+            <Label>Number of Employees</Label>
             <Input type="number" value={form.count} onChange={e => set('count', e.target.value ? parseInt(e.target.value) : '')} placeholder="e.g. 50" className="h-10" />
           </div>
           <div>

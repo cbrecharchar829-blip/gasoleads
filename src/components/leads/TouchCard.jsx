@@ -10,7 +10,6 @@ import CompetitorTag from './CompetitorTag';
 
 const companyAccent = {
   'ADP': 'border-l-4 border-l-red-500 bg-white',
-  'CaneyCloud/VAV': 'border-l-4 border-l-[#c0654a] bg-[#fdf3f0]',
 };
 
 export default function TouchCard({ lead, onMarkDone, onSetTint, onDelete, compact = false, finalTouch = false }) {
@@ -47,7 +46,7 @@ export default function TouchCard({ lead, onMarkDone, onSetTint, onDelete, compa
             <span className="text-gray-300 hidden sm:inline">·</span>
             <span className="hidden sm:inline">{lead.company} · {lead.relationship_type}{lead.relationship_type === 'Client' && lead.client_status ? ` (${lead.client_status})` : ''}</span>
             {lead.count && <span className="text-gray-300 hidden sm:inline">·</span>}
-            {lead.count && <span className="hidden sm:inline">{lead.company === 'ADP' ? 'Employees' : 'Rooms'}: {lead.count}</span>}
+            {lead.count && <span className="hidden sm:inline">Employees: {lead.count}</span>}
           </div>
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400">
             {lead.decision_maker && <span className="inline-flex items-center gap-1"><Users className="w-3 h-3" />{lead.decision_maker}</span>}
